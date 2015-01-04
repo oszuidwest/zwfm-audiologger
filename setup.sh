@@ -5,4 +5,3 @@ yum install ntpdate
 ntpdate ntp.xs4all.nl
 yum install httpd 
 yum install wget 
-
