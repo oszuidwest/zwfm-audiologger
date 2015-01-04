@@ -1,3 +1,6 @@
+# Configuratie includen
+source config.sh
+
 # Bestanden ouder dan MAXAGE vinden
 find $_OUTPUTLOCATION* -mtime +$_MAXAGE -exec rm {} \;
 
