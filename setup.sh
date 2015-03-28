@@ -1,13 +1,19 @@
-#initial setup, centos 6
+### Initial setup, CentOS 7
 
-#Timezone goed zetten (werkt mogelijk niet op OpenVZ)
+## Configuratie includen
+source config.sh
+
+## Timezone goed zetten (werkt mogelijk niet op OpenVZ)
 cp /usr/share/zoneinfo/Europe/Amsterdam /etc/localtime
 
-#Yummin' some stuff
+## Yummin' some stuff
 yum update -y
-yum install ntpdate
-yum install httpd 
-yum install wget 
+yum install ntpdate -y
+yum install httpd -y
+yum install wget -y
 
-#Datum en tijd goedzetten
+## Datum en tijd goedzetten
 ntpdate ntp.xs4all.nl
+
+## User toevoegen
+adduser $USER
