@@ -1,13 +1,29 @@
-# Configuratie includen
+## Configuratie includen
 source config.sh
 
-# Bestanden ouder dan MAXAGE vinden
-find $_OUTPUTLOCATION* -mtime +$_MAXAGE -exec rm {} \;
+## Mappen maken
+if [ !$TMPDIR ];
+  then
+  mkdir -p $TMPDIR
+  chown $USER $TMPDIR
+fi
+if [ !$LOGDIR ];
+  then
+  mkdir -p $LOGDIR
+  chown $USER $LOGDIR
+fi
 
-# Audiologger starten
-wget $_STREAM --output-document=$_OUTPUTLOCATION/$_DATE.mp3 --user-agent="Audiologger ZWFM"
+## Oude bestanden verwijderen en vorige uur wegschrijven
+find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
+find $TMPDIR -type f -mmin +61 -exec mv {} $LOGDIR \;
+chown -R $USER $LOGDIR/*
 
-# TODO: Manier vinden om ieder uur af te breken (cronjob)
-# TODO: Beetje logging?
-# TODO: Wat als connectie halverwege faalt?
-# TODO: Wat als dit al op xx:xx:59 sec gestart wordt, verkeerd uur in de naam dan...
+
+## Vorige uur killen
+pids=$(pgrep $STREAMURL)
+kill $pids
+
+## Volgende uur opnemen
+/usr/bin/wget --background -O $TMPDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
+
+##KLAAR
