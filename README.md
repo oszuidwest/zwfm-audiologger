@@ -15,6 +15,7 @@ This script is provided "as-is" and is supplied without warranty or guarantee.
 Installatie - Gebaseerd op CentOS 6.x
 ============
 Voor het installeren *(uitvoeren als root)*
+ 
   ```yum install unzip -y
   wget -O /root/audiologger.zip https://github.com/rmens/audiologger-zwfm/archive/master.zip 
   unzip /root/audiologger.zip
