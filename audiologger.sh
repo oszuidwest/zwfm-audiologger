@@ -1,5 +1,5 @@
 ## Configuratie includen
-source config.sh
+source /root/audiologger/config.sh
 
 ## Map maken
 if [ !$LOGDIR ];
