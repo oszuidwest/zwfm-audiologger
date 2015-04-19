@@ -1,9 +1,6 @@
 ### Initial setup, CentOS 6
 
 ### INSTALLEER ZELF ICECAST OF HTTPD
- 
-## Configuratie includen
-source config.sh
 
 ## Timezone goed zetten (werkt mogelijk niet op OpenVZ)
 cp /usr/share/zoneinfo/Europe/Amsterdam /etc/localtime
