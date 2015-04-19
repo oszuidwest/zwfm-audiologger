@@ -15,6 +15,6 @@ pids=$(pgrep $STREAMURL)
 kill $pids
 
 ## Volgende uur opnemen
-/usr/bin/wget --background -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
+/usr/bin/wget --quiet --background -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
 
 ##KLAAR
