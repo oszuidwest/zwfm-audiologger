@@ -19,5 +19,5 @@ ntpdate ntp.xs4all.nl
 ## Cronjob zetten
 rm -rf /etc/cron.hourly/0audiologger
 touch /etc/cron.hourly/0audiologger
-echo "sh /root/audiologger.sh" >> /etc/cron.hourly/0audiologger
+echo "sh /root/audiologger/audiologger.sh" >> /etc/cron.hourly/0audiologger
 chmod +x /etc/cron.hourly/0audiologger
