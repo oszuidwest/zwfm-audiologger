@@ -4,15 +4,15 @@ source /root/audiologger/config.sh
 ## Map maken
 if [ !$LOGDIR ];
   then
-  mkdir -p $LOGDIR
+  /bin/mkdir -p $LOGDIR
 fi
 
 ## Oude bestanden verwijderen
-find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
+/bin/find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
 
 ## Vorige uur killen
 pids=$(pgrep $STREAMURL)
-kill $pids
+/bin/kill $pids
 
 ## Volgende uur opnemen
 /usr/bin/wget --quiet --background -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
