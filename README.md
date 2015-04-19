@@ -16,7 +16,7 @@ Installatie - Gebaseerd op CentOS 6.x
 ============
 Voor het installeren *(uitvoeren als root)*
  ```
-yum install unzip -y
+yum install unzip wget -y
 wget -O /root/audiologger.zip https://github.com/rmens/audiologger-zwfm/archive/master.zip
 unzip /root/audiologger.zip
 mkdir /root/audiologger 
