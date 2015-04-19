@@ -11,7 +11,7 @@ fi
 /bin/find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
 
 ## Vorige uur killen
-pids=$(pgrep $STREAMURL)
+pids=$(/usr/bin/pgrep $STREAMURL)
 /bin/kill $pids
 
 ## Volgende uur opnemen
