@@ -11,7 +11,7 @@ GNU GENERAL PUBLIC LICENSE Version 2
 
 This script is provided "as-is" and is supplied without warranty or guarantee.
 
-Installatie - Gebaseerd op CentOS 6.x
+Installatie - Gebaseerd op CentOS 7.x
 ============
 Voor het installeren *(uitvoeren als root)*
  ```
