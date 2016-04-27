@@ -1,9 +1,9 @@
-Simpele audiologger met wget
+Simpele audiologger met wget (grote revisie nodig)
 =================
 
 Over
 =====
-Dit script neemt audio live streams op. Radio-omroepen zijn wettelijk verplicht een 'log' van 14 dagen bij te houden. Wordt ook gebruikt voor uitzending gemist. Als je niet weet wat dit doet, is het waarschijnlijk niet voor jou. Gemaakt voor ZuidWest FM.
+Dit script neemt audio live streams op. Radio-omroepen zijn wettelijk verplicht een 'log' van 14 dagen bij te houden. Wordt ook gebruikt voor uitzending gemist. Als je niet weet wat dit doet, is het waarschijnlijk niet voor jou.
 
 Licentie
 =======
