@@ -12,7 +12,7 @@ fi
 
 ## Vorige uur killen
 pids=$(/usr/bin/pgrep -f $STREAMURL)
-/bin/kill $pids
+/bin/kill -9 $pids
 
 ## Volgende uur opnemen
 /usr/bin/wget --quiet --background --user-agent="Audiologger" -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
