@@ -8,7 +8,7 @@ if [ !$LOGDIR ];
 fi
 
 ## Oude bestanden verwijderen
-/bin/find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
+/usr/bin/find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
 
 ## Vorige uur killen
 pids=$(/usr/bin/pgrep -f $STREAMURL)
