@@ -1,5 +1,5 @@
 ## Configuratie includen
-source /root/audiologger/config
+. /etc/audiologger.conf
 
 ## Map maken
 if [ !$LOGDIR ];
