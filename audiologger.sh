@@ -1,5 +1,5 @@
 ## Configuratie includen
-source /root/audiologger/config.sh
+. /etc/audiologger.conf
 
 ## Map maken
 if [ !$LOGDIR ];
@@ -8,13 +8,13 @@ if [ !$LOGDIR ];
 fi
 
 ## Oude bestanden verwijderen
-/bin/find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
+/usr/bin/find $LOGDIR -type f -mtime +$KEEP -exec rm {} \;
 
 ## Vorige uur killen
 pids=$(/usr/bin/pgrep -f $STREAMURL)
-/bin/kill $pids
+/bin/kill -9 $pids
 
 ## Volgende uur opnemen
-/usr/bin/wget --quiet --background --user-agent="Audiologger ZWFM" -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
+/usr/bin/wget --quiet --background --user-agent="Audiologger" -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
 
 ##KLAAR
