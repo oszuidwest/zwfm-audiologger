@@ -4,7 +4,7 @@
 ## Map maken
 if [ !$LOGDIR ];
   then
-  /bin/mkdir -p $LOGDIR
+  /usr/bin/mkdir -p $LOGDIR
 fi
 
 ## Oude bestanden verwijderen
@@ -12,9 +12,9 @@ fi
 
 ## Vorige uur killen
 pids=$(/usr/bin/pgrep -f $STREAMURL)
-/bin/kill -9 $pids
+/usr/bin/kill -9 $pids
 
 ## Volgende uur opnemen
-/usr/bin/wget --quiet --background --user-agent="Audiologger" -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
+/usr/bin/wget --quiet --background --user-agent="Audiologger ZuidWest (Debian 11)" -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
 
 ##KLAAR

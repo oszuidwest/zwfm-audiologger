@@ -1,9 +1,9 @@
 # audiologger
-Audiologger op basis van wget en Debian / Ubuntu
+Audiologger op basis van wget en Debian 11. Alleen getest op Debian 11, indien andere distro: check paden naar utils.
 
 # MIT License
 
-Copyright (c) 2016 Omroepstichting ZuidWest
+Copyright (c) 2021 Omroepstichting ZuidWest
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
