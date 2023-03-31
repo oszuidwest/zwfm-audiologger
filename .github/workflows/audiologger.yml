@@ -31,7 +31,7 @@ jobs:
       id: record_step
 
     - name: Upload recorded audio as artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: recorded_audio
         path: ${{ env.FILENAME }}
@@ -42,7 +42,7 @@ jobs:
 
     steps:
     - name: Download recorded audio artifact
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: recorded_audio
 
