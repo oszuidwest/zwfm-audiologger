@@ -1,6 +1,8 @@
 # audiologger
 Audiologger op basis van wget en Debian 11. Alleen getest op Debian 11, indien andere distro: check paden naar utils.
 
+[![Audiologger](https://github.com/oszuidwest/audiologger/actions/workflows/audiologger.yml/badge.svg)](https://github.com/oszuidwest/audiologger/actions/workflows/audiologger.yml)
+
 # MIT License
 
 Copyright (c) 2023 Streekomroep ZuidWest
