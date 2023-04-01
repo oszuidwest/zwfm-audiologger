@@ -1,0 +1,43 @@
+name: Remove old recordings
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  remove_old_files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install backblaze-b2
+        run: sudo apt-get update && sudo apt-get install -y backblaze-b2
+
+      - name: Configure B2 CLI
+        run: |
+          backblaze-b2 authorize-account ${{ secrets.B2_KEY_ID }} ${{ secrets.B2_APPLICATION_KEY }}
+      - name: Remove old files from B2 bucket
+        env:
+          BUCKET_NAME: "audiologger"
+          OLDER_THAN_DAYS: 31
+        run: |
+          BUCKET_NAME="${BUCKET_NAME}"
+          OLDER_THAN_DAYS=${OLDER_THAN_DAYS}
+          CURRENT_DATE=$(date +%s)
+          SECONDS_IN_A_DAY=86400
+          function age_in_days() {
+              FILE_DATE=$(echo "$1" | awk -F_ '{print $1}')
+              FILE_TIMESTAMP=$(date -d "$FILE_DATE" +%s)
+              AGE_SECONDS=$((CURRENT_DATE - FILE_TIMESTAMP))
+              AGE_DAYS=$((AGE_SECONDS / SECONDS_IN_A_DAY))
+              echo "$AGE_DAYS"
+          }
+          FILES=$(backblaze-b2 ls --long "$BUCKET_NAME" | grep ".mp3$" | awk '{print $NF}')
+          for FILE in $FILES; do
+              AGE_DAYS=$(age_in_days "$FILE")
+              if [[ $AGE_DAYS -gt $OLDER_THAN_DAYS ]]; then
+                  echo "Delete: $FILE ($AGE_DAYS days old)"
+                  backblaze-b2 delete-file-version "$BUCKET_NAME" "$FILE"
+              else
+                  echo "Keep: $FILE ($AGE_DAYS days old)"
+              fi
+          done
