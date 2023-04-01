@@ -26,8 +26,8 @@ jobs:
         done
         FILENAME=$(date +%Y-%m-%d_%H).mp3
         echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+        echo "FILENAME=$FILENAME" >> $GITHUB_OUTPUT
         ffmpeg -y -i https://icecast.zuidwestfm.nl/zuidwest.mp3 -t 3600 -c copy $FILENAME
-        echo "::set-output name=filename::$FILENAME"
       id: record_step
 
     - name: Upload recorded audio as artifact
@@ -57,5 +57,5 @@ jobs:
       env:
         B2_BUCKET_NAME: audiologger
       run: |
-        FILENAME=${{ needs.record.outputs.filename }}
+        FILENAME=${{ needs.record.outputs.FILENAME }}
         backblaze-b2 upload-file $B2_BUCKET_NAME $FILENAME $FILENAME
