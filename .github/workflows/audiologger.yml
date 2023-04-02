@@ -17,7 +17,7 @@ jobs:
         timezoneLinux: "Europe/Amsterdam"
 
     - name: Install ffmpeg
-      run: sudo apt-get update && sudo apt-get install -q -y ffmpeg
+      run: sudo apt-get --quiet --quiet --yes update && sudo apt-get --quiet --quiet --yes install ffmpeg
 
     - name: Record audio
       run: |
@@ -49,7 +49,7 @@ jobs:
         name: recorded_audio
 
     - name: Install backblaze-b2
-      run: sudo apt-get update && sudo apt-get install -q -y backblaze-b2
+      run: sudo apt-get --quiet --quiet --yes update && sudo apt-get --quiet --quiet --yes install backblaze-b2
 
     - name: Configure B2 CLI
       run: |
