@@ -29,7 +29,7 @@ jobs:
         FILENAME=$(date +%Y-%m-%d_%H).mp3
         echo "FILENAME=$FILENAME" >> $GITHUB_ENV
         echo "FILENAME=$FILENAME" >> $GITHUB_OUTPUT
-        ffmpeg -y -i https://icecast.zuidwestfm.nl/zuidwest.mp3 -t 3600 -c copy $FILENAME
+        ffmpeg -hide_banner -loglevel error -y -i https://icecast.zuidwestfm.nl/zuidwest.mp3 -t 3600 -c copy $FILENAME
       id: record_step
 
     - name: Upload recorded audio as artifact
