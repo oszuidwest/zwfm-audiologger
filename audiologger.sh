@@ -1,20 +1,27 @@
-## Configuratie includen
-. /etc/audiologger.conf
+#!/bin/bash
 
-## Map maken
-if [ !$LOGDIR ];
-  then
-  /usr/bin/mkdir -p $LOGDIR
+# Configuration
+STREAMURL='https://icecast.zuidwestfm.nl/zuidwest.mp3'
+RECDIR='/var/audio'
+LOGFILE='/var/log/audiologger.log'
+# Output date and hour, e.g., "2023_12_31_20u"
+TIMESTAMP=$(/bin/date +"%Y-%m-%d_%Hu")
+# Number of days to keep the audio files
+KEEP=31
+
+# Create recording directory if it does not exist
+if [ ! -d "$RECDIR" ]; then
+    mkdir -p "$RECDIR" || { echo "$(date): Failed to create directory: $RECDIR" >> "$LOGFILE"; exit 1; }
 fi
 
-## Oude bestanden verwijderen
-/usr/bin/find $LOGDIR -type f -mtime +$KEEP -exec /usr/bin/rm {} \;
+# Remove old files based on the KEEP variable
+find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || { echo "$(date): Failed to remove old files in $RECDIR" >> "$LOGFILE"; exit 1; }
 
-## Vorige uur killen
-pids=$(/usr/bin/pgrep -f $STREAMURL)
-/usr/bin/kill -9 $pids
+# Kill processes from the previous hour associated with the stream URL
+pids=$(pgrep -f "$STREAMURL")
+if [ -n "$pids" ]; then
+    kill -9 $pids || { echo "$(date): Failed to kill processes: $pids" >> "$LOGFILE"; exit 1; }
+fi
 
-## Volgende uur opnemen
-/usr/bin/wget --quiet --background --user-agent="Audiologger ZuidWest (Debian 11)" -O $LOGDIR/$TIMESTAMP.mp3 $STREAMURL > /dev/null 2>&1
-
-##KLAAR
+# Record next hour's stream
+wget --quiet --background --user-agent="Audiologger ZuidWest (Debian 11)" -O "${RECDIR}/${TIMESTAMP}.mp3" "$STREAMURL" > /dev/null 2>&1 || { echo "$(date): Failed to start recording from $STREAMURL" >> "$LOGFILE"; exit 1; }
