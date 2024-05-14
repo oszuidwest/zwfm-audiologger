@@ -60,7 +60,7 @@ if [ -z "$PROGRAM_NAME" ] || [ "$PROGRAM_NAME" == "null" ]; then
 fi
 
 # Write metadata to a file
-echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.metadata" || { log_message "Failed to write metadata file"; exit 1; }
+echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
 
 # Record next hour's stream
 wget --quiet --background --user-agent="Audiologger ZuidWest (2024.05)" -O "${RECDIR}/${TIMESTAMP}.mp3" "$STREAMURL" > /dev/null 2>&1 || { log_message "Failed to start recording from $STREAMURL"; exit 1; }
