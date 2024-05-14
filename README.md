@@ -22,8 +22,8 @@ The script requires the following tools to be installed:
 
 1. **Clone this repository:**
    ```
-   git clone https://github.com/yourgithub/audiologger-zuidwest
-   cd audiologger-zuidwest
+   git clone https://github.com/oszuidwest/zwfm-audiologger
+   cd zwfm-audiologger
    ```
 2. **Ensure the script is executable:**
    ```
