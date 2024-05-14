@@ -1,11 +1,9 @@
 # audiologger
-Audiologger op basis van wget en Debian 11. Alleen getest op Debian 11, indien andere distro: check paden naar utils.
-
-[![Audiologger](https://github.com/oszuidwest/audiologger/actions/workflows/audiologger.yml/badge.svg)](https://github.com/oszuidwest/audiologger/actions/workflows/audiologger.yml)
+Audiologger op basis van wget en Debian 12. Alleen getest op Debian 12, indien andere distro: check paden naar utils.
 
 # MIT License
 
-Copyright (c) 2023 Streekomroep ZuidWest
+Copyright (c) 2024 Streekomroep ZuidWest
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
