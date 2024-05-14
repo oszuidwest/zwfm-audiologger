@@ -1,15 +1,15 @@
 
 # Audiologger for ZuidWest FM
 
-This repository contains a bash script designed to record hourly audio streams from ZuidWest FM and log relevant metadata about the current broadcast. The script ensures that audio recordings and their associated metadata are consistently maintained and old recordings are periodically cleaned up.
+This repository contains a bash script designed to record hourly audio streams from ZuidWest FM and log relevant metadata about the current broadcast. The script also ensures that audio old recordings are periodically cleaned up.
 
 ## Features
 
 - **Continuous Recording**: Automatically records the audio stream from ZuidWest FM every hour.
-- **Metadata Logging**: Fetches and logs the current program name from an external API, providing context for each recording.
-- **Log File Maintenance**: Maintains a detailed log file for tracking the script’s activities and any potential errors.
+- **Metadata Logging**: Fetches and logs the current program name from the broadcast data API, providing context for each recording.
+- **Log File**: Maintains a detailed log file for tracking the script’s activities and any potential errors.
 - **Automatic Cleanup**: Removes audio files older than 31 days to free up space.
-- **Debug Mode**: Facilitates troubleshooting by providing additional output when enabled.
+- **Debug Mode**: Troubleshooting by providing additional output when enabled.
 
 ## Prerequisites
 
@@ -80,4 +80,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
