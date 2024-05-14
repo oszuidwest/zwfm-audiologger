@@ -57,5 +57,5 @@ fi
 # Write metadata to a file
 echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
 
-# Record next hour's stream using curl with custom user agent
+# Record next hour's stream
 curl -s -o "${RECDIR}/${TIMESTAMP}.mp3" -A "Audiologger ZuidWest FM (2024.05)" "$STREAMURL" &> /dev/null & disown || { log_message "Failed to start recording from $STREAMURL"; exit 1; }
