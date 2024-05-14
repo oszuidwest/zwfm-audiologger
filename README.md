@@ -15,7 +15,6 @@ This repository contains a bash script designed to record hourly audio streams f
 
 The script requires the following tools to be installed:
 - `jq` - Command-line JSON processor.
-- `wget` - Utility for non-interactive download of files from the web.
 - `curl` - Command line tool and library for transferring data with URLs.
 
 ## Installation

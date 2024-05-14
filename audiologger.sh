@@ -27,14 +27,9 @@ if [ ! -f "$LOGFILE" ]; then
     touch "$LOGFILE"
 fi
 
-# Check if jq and wget are installed
+# Check if jq is installed
 if ! command -v jq &> /dev/null; then
     log_message "jq is not installed"
-    exit 1
-fi
-
-if ! command -v wget &> /dev/null; then
-    log_message "wget is not installed"
     exit 1
 fi
 
@@ -62,5 +57,5 @@ fi
 # Write metadata to a file
 echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
 
-# Record next hour's stream
-wget --quiet --background --user-agent="Audiologger ZuidWest (2024.05)" -O "${RECDIR}/${TIMESTAMP}.mp3" "$STREAMURL" > /dev/null 2>&1 || { log_message "Failed to start recording from $STREAMURL"; exit 1; }
+# Record next hour's stream using curl with custom user agent
+curl -s -o "${RECDIR}/${TIMESTAMP}.mp3" -A "Audiologger ZuidWest FM (2024.05)" "$STREAMURL" &> /dev/null & disown || { log_message "Failed to start recording from $STREAMURL"; exit 1; }
