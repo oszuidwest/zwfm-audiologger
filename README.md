@@ -1,7 +1,7 @@
 
-# Audiologger for ZuidWest FM
+# Audiologger ZuidWest FM
 
-This repository contains a bash script designed to record hourly audio streams from ZuidWest FM and log relevant metadata about the current broadcast. The script also ensures that audio old recordings are periodically cleaned up.
+This repository contains a bash script designed to record audio streams on an hourly basis and log relevant metadata about the current broadcast. The script also ensures that audio old recordings are periodically cleaned up.
 
 ## Features
 
@@ -15,8 +15,9 @@ This repository contains a bash script designed to record hourly audio streams f
 
 The script requires the following tools to be installed:
 - `jq` - Command-line JSON processor.
-- `wget` - Utility for non-interactive download of files from the web.
 - `curl` - Command line tool and library for transferring data with URLs.
+
+This script is designed for use with websites based on the [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp), utilizing the Broadcast Data API from the theme. If you're using a different API, metadata logging may not function correctly and will require modifications.
 
 ## Installation
 
@@ -32,7 +33,7 @@ The script requires the following tools to be installed:
 
 ## Configuration
 
-Modify the script to specify the recording directory (`RECDIR`), log file path (`LOGFILE`), and other operational parameters:
+Modify the script to specify the recording directory (`RECDIR`), log file path (`LOGFILE`), and other parameters:
 - `STREAMURL`: URL of the audio stream.
 - `RECDIR`: Directory where audio recordings are stored.
 - `LOGFILE`: File path for logging script operations.
@@ -48,7 +49,7 @@ Schedule the script to run every hour using cron:
    ```
 2. Add the following line to run the script at the start of every hour:
    ```
-   0 * * * * /path/to/your/audiologger-zuidwest/audiologger.sh
+   0 * * * * /path/to/your/zwfm-audiologger/audiologger.sh
    ```
 
 ## Debugging
