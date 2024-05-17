@@ -44,7 +44,7 @@ find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to 
 # Kill processes from the previous hour associated with the stream URL
 PIDS=$(pgrep -f "$STREAMURL")
 if [ -n "$PIDS" ]; then
-    kill -9 $PIDS || { log_message "Failed to kill processes: $PIDS"; exit 1; }
+    kill -9 "$PIDS" || { log_message "Failed to kill processes: $PIDS"; exit 1; }
 fi
 
 # Fetch current program name from the API
