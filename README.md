@@ -17,7 +17,7 @@ The script requires the following tools to be installed:
 - `jq` - Command-line JSON processor.
 - `curl` - Command line tool and library for transferring data with URLs.
 
-This script is designed for use with websites based on the [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp), utilizing the Broadcast Data API from the theme. If you're using a different API, metadata logging may not function correctly and will require modifications.
+This script is designed for use with websites based on the [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp), utilizing the Broadcast Data API from the theme. If you're using a different API, set `PARSE_METADATA` to 0 and use a plaintext file with metadata, or implement your own parsing.
 
 ## Installation
 
@@ -39,6 +39,7 @@ Modify the script to specify the recording directory (`RECDIR`), log file path (
 - `LOGFILE`: File path for logging script operations.
 - `METADATA_URL`: API endpoint for fetching broadcast metadata.
 - `KEEP`: Number of days to retain audio recordings.
+- `PARSE_METADATA`: Enables or disables metadata parsing from the Streekomroep WordPress theme.
 
 ## Usage
 
