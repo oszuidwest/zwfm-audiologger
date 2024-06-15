@@ -11,6 +11,8 @@ TIMESTAMP=$(/bin/date +"%Y-%m-%d_%H")
 KEEP=31
 # Debug mode flag (set to 1 to enable debug mode)
 DEBUG=0
+# Metadata parsing flag (set to 1 to enable metadata parsing, 0 for plain text)
+PARSE_METADATA=1
 
 # Function to handle logging
 log_message() {
@@ -47,11 +49,21 @@ if [ -n "$PIDS" ]; then
     kill -9 "$PIDS" || { log_message "Failed to kill processes: $PIDS"; exit 1; }
 fi
 
-# Fetch current program name from the API
-PROGRAM_NAME=$(curl --silent "$METADATA_URL" | jq -r '.fm.now')
-if [ -z "$PROGRAM_NAME" ] || [ "$PROGRAM_NAME" == "null" ]; then
-    log_message "Failed to fetch current program name or program name is null"
-    PROGRAM_NAME="Unknown Program"
+# Fetch current program name
+if [ "$PARSE_METADATA" -eq 1 ]; then
+    # Parse metadata using jq
+    PROGRAM_NAME=$(curl --silent "$METADATA_URL" | jq -r '.fm.now')
+    if [ -z "$PROGRAM_NAME" ] || [ "$PROGRAM_NAME" == "null" ]; then
+        log_message "Failed to fetch current program name or program name is null"
+        PROGRAM_NAME="Unknown Program"
+    fi
+else
+    # Use plain value of what the URL displays
+    PROGRAM_NAME=$(curl --silent "$METADATA_URL")
+    if [ -z "$PROGRAM_NAME" ]; then
+        log_message "Failed to fetch current program name"
+        PROGRAM_NAME="Unknown Program"
+    fi
 fi
 
 # Write metadata to a file
