@@ -69,5 +69,5 @@ fi
 # Write metadata to a file
 echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
 
-# Record next hour's stream
-curl -s -o "${RECDIR}/${TIMESTAMP}.mp3" -A "Audiologger ZuidWest FM (2024.05)" "$STREAMURL" &> /dev/null & disown || { log_message "Failed to start recording from $STREAMURL"; exit 1; }
+# Record next hours stream
+ffmpeg -loglevel error -t 3600 -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 -i "$STREAMURL" -c copy -f mp3 -y "$OUTPUT_FILE" & disown
