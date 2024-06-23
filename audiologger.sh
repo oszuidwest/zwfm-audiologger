@@ -10,7 +10,7 @@ TIMESTAMP=$(/bin/date +"%Y-%m-%d_%H")
 # Number of days to keep the audio files
 KEEP=31
 # Debug mode flag (set to 1 to enable debug mode)
-DEBUG=0
+DEBUG=1
 # Metadata parsing flag (set to 1 to enable metadata parsing, 0 for plain text)
 PARSE_METADATA=1
 
