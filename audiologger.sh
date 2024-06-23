@@ -29,17 +29,13 @@ if [ ! -f "$LOGFILE" ]; then
     touch "$LOGFILE"
 fi
 
-# Check if jq is installed
-if ! command -v jq &> /dev/null; then
-    log_message "jq is not installed"
-    exit 1
-fi
-
-# Check if ffmpeg is installed
-if ! command -v ffmpeg &> /dev/null; then
-    log_message "ffmpeg is not installed"
-    exit 1
-fi
+# Check if required commands are installed (ffmpeg, curl, jq)
+for cmd in ffmpeg curl jq; do
+    if ! command -v $cmd &> /dev/null; then
+        log_message "$cmd is not installed."
+        exit 1
+    fi
+done
 
 # Create recording directory if it does not exist
 if [ ! -d "$RECDIR" ]; then
