@@ -35,6 +35,12 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+# Check if ffmpeg is installed
+if ! command -v ffmpeg &> /dev/null; then
+    log_message "ffmpeg is not installed"
+    exit 1
+fi
+
 # Create recording directory if it does not exist
 if [ ! -d "$RECDIR" ]; then
     mkdir -p "$RECDIR" || { log_message "Failed to create directory: $RECDIR"; exit 1; }
@@ -42,12 +48,6 @@ fi
 
 # Remove old files based on the KEEP variable
 find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to remove old files in $RECDIR"
-
-# Kill processes from the previous hour associated with the stream URL
-PIDS=$(pgrep -f "$STREAMURL")
-if [ -n "$PIDS" ]; then
-    kill -9 "$PIDS" || { log_message "Failed to kill processes: $PIDS"; exit 1; }
-fi
 
 # Fetch current program name
 if [ "$PARSE_METADATA" -eq 1 ]; then
@@ -69,5 +69,5 @@ fi
 # Write metadata to a file
 echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
 
-# Record next hours stream
-ffmpeg -loglevel error -t 3600 -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 -i "$STREAMURL" -c copy -f mp3 -y "$OUTPUT_FILE" & disown
+# Record next hour's stream
+ffmpeg -loglevel error -t 3600 -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 -i "$STREAMURL" -c copy -f mp3 -y "${RECDIR}/${TIMESTAMP}.mp3" & disown
