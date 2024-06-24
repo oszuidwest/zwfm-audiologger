@@ -10,7 +10,7 @@ TIMESTAMP=$(/bin/date +"%Y-%m-%d_%H")
 # Number of days to keep the audio files
 KEEP=31
 # Debug mode flag (set to 1 to enable debug mode)
-DEBUG=0
+DEBUG=1
 # Metadata parsing flag (set to 1 to enable metadata parsing, 0 for plain text)
 PARSE_METADATA=1
 
@@ -29,11 +29,13 @@ if [ ! -f "$LOGFILE" ]; then
     touch "$LOGFILE"
 fi
 
-# Check if jq is installed
-if ! command -v jq &> /dev/null; then
-    log_message "jq is not installed"
-    exit 1
-fi
+# Check if required commands are installed (ffmpeg, curl, jq)
+for cmd in ffmpeg curl jq; do
+    if ! command -v $cmd &> /dev/null; then
+        log_message "$cmd is not installed."
+        exit 1
+    fi
+done
 
 # Create recording directory if it does not exist
 if [ ! -d "$RECDIR" ]; then
@@ -42,12 +44,6 @@ fi
 
 # Remove old files based on the KEEP variable
 find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to remove old files in $RECDIR"
-
-# Kill processes from the previous hour associated with the stream URL
-PIDS=$(pgrep -f "$STREAMURL")
-if [ -n "$PIDS" ]; then
-    kill -9 "$PIDS" || { log_message "Failed to kill processes: $PIDS"; exit 1; }
-fi
 
 # Fetch current program name
 if [ "$PARSE_METADATA" -eq 1 ]; then
@@ -70,4 +66,4 @@ fi
 echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
 
 # Record next hour's stream
-curl -s -o "${RECDIR}/${TIMESTAMP}.mp3" -A "Audiologger ZuidWest FM (2024.05)" "$STREAMURL" &> /dev/null & disown || { log_message "Failed to start recording from $STREAMURL"; exit 1; }
+ffmpeg -loglevel error -user_agent "ZuidWest Audiologger 3.0" -t 3600 -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 2 -i "$STREAMURL" -c copy -f mp3 -y "${RECDIR}/${TIMESTAMP}.mp3" & disown
