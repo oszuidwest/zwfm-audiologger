@@ -48,7 +48,7 @@ find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to 
 # Check if an ffmpeg process with the specified stream URL and timestamp is already running
 if pgrep -af "ffmpeg.*$STREAMURL.*$TIMESTAMP" > /dev/null; then
     log_message "An ffmpeg recording process for $TIMESTAMP with $STREAMURL is already running. Exiting."
-    exit 0
+    exit 1
 fi
 
 # Fetch current program name
