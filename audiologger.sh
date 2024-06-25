@@ -45,6 +45,12 @@ fi
 # Remove old files based on the KEEP variable
 find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to remove old files in $RECDIR"
 
+# Check if an ffmpeg process with the specified stream URL and timestamp is already running
+if pgrep -af "ffmpeg.*$STREAMURL.*$TIMESTAMP" > /dev/null; then
+    log_message "An ffmpeg recording process for $TIMESTAMP with $STREAMURL is already running. Exiting."
+    exit 0
+fi
+
 # Fetch current program name
 if [ "$PARSE_METADATA" -eq 1 ]; then
     # Parse metadata using jq
