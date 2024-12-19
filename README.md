@@ -99,18 +99,6 @@ Schedule the script to run every hour using cron:
    0 * * * * /path/to/your/zwfm-audiologger/audiologger.sh
    ```
 
-## Docker Usage
-When using Docker, mount your config file and specify directories in docker-compose:
-
-```yaml
-services:
-  audiologger:
-    volumes:
-      - ./audio:/var/audio
-      - ./logs:/var/log
-      - ./streams.json:/app/streams.json:ro
-```
-
 ## Debugging
 To enable debug mode, set `debug: 1` in the global section of streams.json. This will output debug information to the console to help identify any issues during execution.
 
