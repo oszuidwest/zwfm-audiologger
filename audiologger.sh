@@ -5,71 +5,66 @@ STREAMURL='https://icecast.zuidwestfm.nl/zuidwest.mp3'
 RECDIR='/var/audio'
 LOGFILE='/var/log/audiologger.log'
 METADATA_URL='https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data'
-# Output date and hour, e.g., "2023_12_31_20"
-TIMESTAMP=$(/bin/date +"%Y-%m-%d_%H")
-# Number of days to keep the audio files
 KEEP=31
-# Debug mode flag (set to 1 to enable debug mode)
 DEBUG=1
-# Metadata parsing flag (set to 1 to enable metadata parsing, 0 for plain text)
 PARSE_METADATA=1
 
-# Function to handle logging
-log_message() {
-    local message="$1"
-    echo "$(date): $message" >> "$LOGFILE"
-    if [ "$DEBUG" -eq 1 ]; then
-        echo "$(date): $message"
-    fi
+# Initialize logging
+mkdir -p "$(dirname "$LOGFILE")"
+touch "$LOGFILE"
+
+# Log function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" >> "$LOGFILE"
+    [[ $DEBUG -eq 1 ]] && echo "$(date '+%Y-%m-%d %H:%M:%S'): $1"
 }
 
-# Ensure the log file exists
-if [ ! -f "$LOGFILE" ]; then
-    mkdir -p "$(dirname "$LOGFILE")"
-    touch "$LOGFILE"
-fi
-
-# Check if required commands are installed (ffmpeg, curl, jq)
+# Check requirements
 for cmd in ffmpeg curl jq; do
     if ! command -v $cmd &> /dev/null; then
-        log_message "$cmd is not installed."
+        log "ERROR: $cmd is not installed."
         exit 1
     fi
 done
 
-# Create recording directory if it does not exist
-if [ ! -d "$RECDIR" ]; then
-    mkdir -p "$RECDIR" || { log_message "Failed to create directory: $RECDIR"; exit 1; }
-fi
+# Setup recording directory
+mkdir -p "$RECDIR" || { log "ERROR: Failed to create $RECDIR"; exit 1; }
 
-# Remove old files based on the KEEP variable
-find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to remove old files in $RECDIR"
+# Cleanup old files
+find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; 2>/dev/null || log "WARNING: Failed to cleanup old files"
 
-# Check if an ffmpeg process with the specified stream URL and timestamp is already running
+# Get timestamp
+TIMESTAMP=$(date +"%Y-%m-%d_%H")
+
+# Check for running process
 if pgrep -af "ffmpeg.*$STREAMURL.*$TIMESTAMP" > /dev/null; then
-    log_message "An ffmpeg recording process for $TIMESTAMP with $STREAMURL is already running. Exiting."
+    log "WARNING: Recording for $TIMESTAMP already running"
     exit 1
 fi
 
-# Fetch current program name
-if [ "$PARSE_METADATA" -eq 1 ]; then
-    # Parse metadata using jq
-    PROGRAM_NAME=$(curl --silent "$METADATA_URL" | jq -r '.fm.now')
-    if [ -z "$PROGRAM_NAME" ] || [ "$PROGRAM_NAME" == "null" ]; then
-        log_message "Failed to fetch current program name or program name is null"
-        PROGRAM_NAME="Unknown Program"
-    fi
+# Get program name
+if [[ $PARSE_METADATA -eq 1 ]]; then
+    PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL" | jq -r '.fm.now')
+    [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
 else
-    # Use plain value of what the URL displays
-    PROGRAM_NAME=$(curl --silent "$METADATA_URL")
-    if [ -z "$PROGRAM_NAME" ]; then
-        log_message "Failed to fetch current program name"
-        PROGRAM_NAME="Unknown Program"
-    fi
+    PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL")
+    [[ -z "$PROGRAM_NAME" ]] && PROGRAM_NAME="Unknown Program"
 fi
 
-# Write metadata to a file
-echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
+# Save metadata
+echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || log "WARNING: Failed to write metadata"
 
-# Record next hour's stream
-ffmpeg -loglevel error -t 3600 -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 300 -reconnect_on_http_error 404 -rw_timeout 10000000 -i "$STREAMURL" -c copy -f mp3 -y "${RECDIR}/${TIMESTAMP}.mp3" & disown
+# Start recording
+log "INFO: Starting recording for $TIMESTAMP - $PROGRAM_NAME"
+ffmpeg -loglevel error \
+    -t 3600 \
+    -reconnect 1 \
+    -reconnect_at_eof 1 \
+    -reconnect_streamed 1 \
+    -reconnect_delay_max 300 \
+    -reconnect_on_http_error 404,500,503 \
+    -rw_timeout 10000000 \
+    -i "$STREAMURL" \
+    -c copy \
+    -f mp3 \
+    -y "${RECDIR}/${TIMESTAMP}.mp3" 2>> "$LOGFILE" & disown
