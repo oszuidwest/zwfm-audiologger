@@ -26,6 +26,18 @@ log() {
     [[ $DEBUG -eq 1 ]] && echo "$(date '+%Y-%m-%d %H:%M:%S'): $1"
 }
 
+# Function to clean old files asynchronously
+cleanup_files() {
+    local dir=$1
+    local days=$2
+    local name=$3
+    {
+        find "$dir" -type f -mtime "+$days" -print0 | xargs -0 -r rm 2>/dev/null || \
+            log "WARNING: Failed to cleanup old files for $name"
+        log "INFO: Completed cleanup for $name"
+    } &
+}
+
 # Function to fetch and store metadata
 fetch_metadata() {
     local name=$1
@@ -54,7 +66,7 @@ fetch_metadata() {
 }
 
 # Check dependencies
-for cmd in ffmpeg curl jq; do
+for cmd in ffmpeg curl jq xargs; do
     if ! command -v $cmd &> /dev/null; then
         log "ERROR: $cmd is not installed."
         exit 1
@@ -79,11 +91,12 @@ while read -r stream_base64; do
     # Use stream-specific keep_days or fall back to global KEEP
     [[ -z "$keep_days" ]] && keep_days=$KEEP
     
-    # Create and clean stream directory
+    # Create stream directory
     stream_dir="$RECDIR/$name"
     mkdir -p "$stream_dir"
-    find "$stream_dir" -type f -mtime "+$keep_days" -exec rm {} \; 2>/dev/null || \
-        log "WARNING: Failed to cleanup old files for $name"
+    
+    # Start async cleanup
+    cleanup_files "$stream_dir" "$keep_days" "$name"
     
     # Check for existing recording
     if pgrep -af "ffmpeg.*$stream_url.*$TIMESTAMP" > /dev/null; then
