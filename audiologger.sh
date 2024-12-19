@@ -13,7 +13,6 @@ fi
 # Load global settings
 RECDIR=$(jq -r '.global.rec_dir' "$CONFIG_FILE")
 LOGFILE=$(jq -r '.global.log_file' "$CONFIG_FILE")
-KEEP=$(jq -r '.global.keep_days' "$CONFIG_FILE")
 DEBUG=$(jq -r '.global.debug' "$CONFIG_FILE")
 
 # Setup logging
