@@ -40,7 +40,7 @@ mkdir -p "$RECDIR"
 TIMESTAMP=$(date +"%Y-%m-%d_%H")
 
 # Process each stream
-jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE" | while read -r stream_base64; do
+while read -r stream_base64; do
     # Decode stream config
     stream_json=$(echo "$stream_base64" | base64 -d)
     name=$(echo "$stream_json" | jq -r '.key')
@@ -66,7 +66,7 @@ jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE" | while read -r stream_
     fi
     
     # Get program info
-    if [[ $parse_metadata -eq 1 && ! -z "$metadata_path" ]]; then
+    if [[ $parse_metadata -eq 1 && -n "$metadata_path" ]]; then
         PROGRAM_NAME=$(curl -s --max-time 5 "$metadata_url" 2>/dev/null | jq -r "$metadata_path")
     else
         PROGRAM_NAME=$(curl -s --max-time 5 "$metadata_url" 2>/dev/null)
@@ -79,7 +79,7 @@ jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE" | while read -r stream_
     
     # Start recording
     log "INFO: Starting recording for $name - $TIMESTAMP - $PROGRAM_NAME"
-    ffmpeg -loglevel error \
+    ffmpeg -nostdin -loglevel error \
         -t 3600 \
         -reconnect 1 \
         -reconnect_at_eof 1 \
@@ -91,4 +91,4 @@ jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE" | while read -r stream_
         -c copy \
         -f mp3 \
         -y "${stream_dir}/${TIMESTAMP}.mp3" 2>> "$LOGFILE" & disown
-done
+done < <(jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE")
