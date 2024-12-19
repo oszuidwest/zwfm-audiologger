@@ -1,75 +1,112 @@
 #!/bin/bash
+# Records hourly segments from a live stream and stores program metadata
+# Designed to be run via cron every hour
 
-# Configuration
-STREAMURL='https://icecast.zuidwestfm.nl/zuidwest.mp3'
-RECDIR='/var/audio'
-LOGFILE='/var/log/audiologger.log'
-METADATA_URL='https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data'
-# Output date and hour, e.g., "2023_12_31_20"
-TIMESTAMP=$(/bin/date +"%Y-%m-%d_%H")
-# Number of days to keep the audio files
-KEEP=31
-# Debug mode flag (set to 1 to enable debug mode)
-DEBUG=1
-# Metadata parsing flag (set to 1 to enable metadata parsing, 0 for plain text)
-PARSE_METADATA=1
+CONFIG_FILE=${CONFIG_FILE:-'/app/streams.json'}
 
-# Function to handle logging
-log_message() {
-    local message="$1"
-    echo "$(date): $message" >> "$LOGFILE"
-    if [ "$DEBUG" -eq 1 ]; then
-        echo "$(date): $message"
-    fi
-}
-
-# Ensure the log file exists
-if [ ! -f "$LOGFILE" ]; then
-    mkdir -p "$(dirname "$LOGFILE")"
-    touch "$LOGFILE"
+# Check if config exists
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file not found: $CONFIG_FILE"
+    exit 1
 fi
 
-# Check if required commands are installed (ffmpeg, curl, jq)
+# Load global settings
+RECDIR=$(jq -r '.global.rec_dir' "$CONFIG_FILE")
+LOGFILE=$(jq -r '.global.log_file' "$CONFIG_FILE")
+DEBUG=$(jq -r '.global.debug' "$CONFIG_FILE")
+KEEP=$(jq -r '.global.keep_days' "$CONFIG_FILE")
+
+# Setup logging
+mkdir -p "$(dirname "$LOGFILE")"
+touch "$LOGFILE"
+
+# Log with timestamps
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" >> "$LOGFILE"
+    [[ $DEBUG -eq 1 ]] && echo "$(date '+%Y-%m-%d %H:%M:%S'): $1"
+}
+
+# Function to fetch and store metadata
+fetch_metadata() {
+    local name=$1
+    local metadata_url=$2
+    local metadata_path=$3
+    local parse_metadata=$4
+    local stream_dir=$5
+    local timestamp=$6
+
+    # Get program info
+    {
+        if [[ $parse_metadata -eq 1 && -n "$metadata_path" ]]; then
+            PROGRAM_NAME=$(curl -s --max-time 15 "$metadata_url" 2>/dev/null | jq -r "$metadata_path")
+        else
+            PROGRAM_NAME=$(curl -s --max-time 15 "$metadata_url" 2>/dev/null)
+        fi
+        
+        [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
+        
+        # Store metadata
+        echo "$PROGRAM_NAME" > "${stream_dir}/${timestamp}.meta" || \
+            log "WARNING: Failed to write metadata for $name"
+        
+        log "INFO: Stored metadata for $name - $timestamp - $PROGRAM_NAME"
+    } &
+}
+
+# Check dependencies
 for cmd in ffmpeg curl jq; do
     if ! command -v $cmd &> /dev/null; then
-        log_message "$cmd is not installed."
+        log "ERROR: $cmd is not installed."
         exit 1
     fi
 done
 
-# Create recording directory if it does not exist
-if [ ! -d "$RECDIR" ]; then
-    mkdir -p "$RECDIR" || { log_message "Failed to create directory: $RECDIR"; exit 1; }
-fi
+# Create base directory
+mkdir -p "$RECDIR"
+TIMESTAMP=$(date +"%Y-%m-%d_%H")
 
-# Remove old files based on the KEEP variable
-find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; || log_message "Failed to remove old files in $RECDIR"
-
-# Check if an ffmpeg process with the specified stream URL and timestamp is already running
-if pgrep -af "ffmpeg.*$STREAMURL.*$TIMESTAMP" > /dev/null; then
-    log_message "An ffmpeg recording process for $TIMESTAMP with $STREAMURL is already running. Exiting."
-    exit 1
-fi
-
-# Fetch current program name
-if [ "$PARSE_METADATA" -eq 1 ]; then
-    # Parse metadata using jq
-    PROGRAM_NAME=$(curl --silent "$METADATA_URL" | jq -r '.fm.now')
-    if [ -z "$PROGRAM_NAME" ] || [ "$PROGRAM_NAME" == "null" ]; then
-        log_message "Failed to fetch current program name or program name is null"
-        PROGRAM_NAME="Unknown Program"
+# Process each stream
+while read -r stream_base64; do
+    # Decode stream config
+    stream_json=$(echo "$stream_base64" | base64 -d)
+    name=$(echo "$stream_json" | jq -r '.key')
+    stream_url=$(echo "$stream_json" | jq -r '.value.stream_url')
+    metadata_url=$(echo "$stream_json" | jq -r '.value.metadata_url')
+    metadata_path=$(echo "$stream_json" | jq -r '.value.metadata_path // empty')
+    parse_metadata=$(echo "$stream_json" | jq -r '.value.parse_metadata // 0')
+    keep_days=$(echo "$stream_json" | jq -r '.value.keep_days // empty')
+    
+    # Use stream-specific keep_days or fall back to global KEEP
+    [[ -z "$keep_days" ]] && keep_days=$KEEP
+    
+    # Create and clean stream directory
+    stream_dir="$RECDIR/$name"
+    mkdir -p "$stream_dir"
+    find "$stream_dir" -type f -mtime "+$keep_days" -exec rm {} \; 2>/dev/null || \
+        log "WARNING: Failed to cleanup old files for $name"
+    
+    # Check for existing recording
+    if pgrep -af "ffmpeg.*$stream_url.*$TIMESTAMP" > /dev/null; then
+        log "WARNING: Recording for $name $TIMESTAMP already running"
+        continue
     fi
-else
-    # Use plain value of what the URL displays
-    PROGRAM_NAME=$(curl --silent "$METADATA_URL")
-    if [ -z "$PROGRAM_NAME" ]; then
-        log_message "Failed to fetch current program name"
-        PROGRAM_NAME="Unknown Program"
-    fi
-fi
+    
+    # Start metadata fetch in background
+    fetch_metadata "$name" "$metadata_url" "$metadata_path" "$parse_metadata" "$stream_dir" "$TIMESTAMP"
+    
+    # Start recording
+    log "INFO: Starting recording for $name - $TIMESTAMP"
+    ffmpeg -nostdin -loglevel error \
+        -t 3600 \
+        -reconnect 1 \
+        -reconnect_at_eof 1 \
+        -reconnect_streamed 1 \
+        -reconnect_delay_max 300 \
+        -reconnect_on_http_error 404,500,503 \
+        -rw_timeout 10000000 \
+        -i "$stream_url" \
+        -c copy \
+        -f mp3 \
+        -y "${stream_dir}/${TIMESTAMP}.mp3" 2>> "$LOGFILE" & disown
 
-# Write metadata to a file
-echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || { log_message "Failed to write metadata file"; exit 1; }
-
-# Record next hour's stream
-ffmpeg -loglevel error -t 3600 -reconnect 1 -reconnect_at_eof 1 -reconnect_streamed 1 -reconnect_delay_max 300 -reconnect_on_http_error 404 -rw_timeout 10000000 -i "$STREAMURL" -c copy -f mp3 -y "${RECDIR}/${TIMESTAMP}.mp3" & disown
+done < <(jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE")
