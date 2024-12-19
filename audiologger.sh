@@ -1,25 +1,28 @@
 #!/bin/bash
 
+# Records hourly segments from a live stream and stores program metadata
+# Designed to be run via cron every hour
+
 # Configuration
 STREAMURL='https://icecast.zuidwestfm.nl/zuidwest.mp3'
 RECDIR='/var/audio'
 LOGFILE='/var/log/audiologger.log'
 METADATA_URL='https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data'
-KEEP=31
-DEBUG=1
-PARSE_METADATA=1
+KEEP=31          # Days to keep recordings
+DEBUG=1          # Show log messages in terminal
+PARSE_METADATA=1 # Parse JSON metadata (0 for plain text)
 
-# Initialize logging
+# Setup logging
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
 
-# Log function
+# Log with timestamps
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" >> "$LOGFILE"
     [[ $DEBUG -eq 1 ]] && echo "$(date '+%Y-%m-%d %H:%M:%S'): $1"
 }
 
-# Check requirements
+# Check dependencies
 for cmd in ffmpeg curl jq; do
     if ! command -v $cmd &> /dev/null; then
         log "ERROR: $cmd is not installed."
@@ -27,20 +30,19 @@ for cmd in ffmpeg curl jq; do
     fi
 done
 
-# Cleanup old files and ensure record directory exists
+# Cleanup old files
 mkdir -p "$RECDIR"
 find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; 2>/dev/null || log "WARNING: Failed to cleanup old files"
 
-# Get timestamp
 TIMESTAMP=$(date +"%Y-%m-%d_%H")
 
-# Check for running process
+# Prevent duplicate recordings
 if pgrep -af "ffmpeg.*$STREAMURL.*$TIMESTAMP" > /dev/null; then
     log "WARNING: Recording for $TIMESTAMP already running"
     exit 1
 fi
 
-# Get program name
+# Get program info
 if [[ $PARSE_METADATA -eq 1 ]]; then
     PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL" 2>/dev/null | jq -r '.fm.now')
     [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
@@ -49,7 +51,7 @@ else
     [[ -z "$PROGRAM_NAME" ]] && PROGRAM_NAME="Unknown Program"
 fi
 
-# Save metadata
+# Store metadata
 echo "$PROGRAM_NAME" > "${RECDIR}/${TIMESTAMP}.meta" || log "WARNING: Failed to write metadata"
 
 # Start recording
