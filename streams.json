@@ -16,6 +16,7 @@
     "rucphen": {
       "stream_url": "https://icecast.zuidwest.cloud/radiorucphen.mp3",
       "metadata_url": "https://rucphen.zuidwest.cloud/proxy.php",
+      "metadata_path": ".fm.now",
       "parse_metadata": 1,
       "keep_days": 31
     }
