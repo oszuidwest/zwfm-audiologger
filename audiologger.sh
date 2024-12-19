@@ -14,6 +14,7 @@ fi
 RECDIR=$(jq -r '.global.rec_dir' "$CONFIG_FILE")
 LOGFILE=$(jq -r '.global.log_file' "$CONFIG_FILE")
 DEBUG=$(jq -r '.global.debug' "$CONFIG_FILE")
+KEEP=$(jq -r '.global.keep_days' "$CONFIG_FILE")
 
 # Setup logging
 mkdir -p "$(dirname "$LOGFILE")"
@@ -47,7 +48,10 @@ jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE" | while read -r stream_
     metadata_url=$(echo "$stream_json" | jq -r '.value.metadata_url')
     metadata_path=$(echo "$stream_json" | jq -r '.value.metadata_path // empty')
     parse_metadata=$(echo "$stream_json" | jq -r '.value.parse_metadata // 0')
-    keep_days=$(echo "$stream_json" | jq -r '.value.keep_days')
+    keep_days=$(echo "$stream_json" | jq -r '.value.keep_days // empty')
+    
+    # Use stream-specific keep_days or fall back to global KEEP
+    [[ -z "$keep_days" ]] && keep_days=$KEEP
     
     # Create and clean stream directory
     stream_dir="$RECDIR/$name"
