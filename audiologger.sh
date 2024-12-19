@@ -27,10 +27,8 @@ for cmd in ffmpeg curl jq; do
     fi
 done
 
-# Setup recording directory
-mkdir -p "$RECDIR" || { log "ERROR: Failed to create $RECDIR"; exit 1; }
-
-# Cleanup old files
+# Cleanup old files and ensure record directory exists
+mkdir -p "$RECDIR"
 find "$RECDIR" -type f -mtime "+$KEEP" -exec rm {} \; 2>/dev/null || log "WARNING: Failed to cleanup old files"
 
 # Get timestamp
@@ -44,10 +42,10 @@ fi
 
 # Get program name
 if [[ $PARSE_METADATA -eq 1 ]]; then
-    PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL" | jq -r '.fm.now')
+    PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL" 2>/dev/null | jq -r '.fm.now')
     [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
 else
-    PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL")
+    PROGRAM_NAME=$(curl -s --max-time 5 "$METADATA_URL" 2>/dev/null)
     [[ -z "$PROGRAM_NAME" ]] && PROGRAM_NAME="Unknown Program"
 fi
 
