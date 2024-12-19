@@ -1,26 +1,23 @@
 # Audiologger ZuidWest FM
-
 This repository contains a bash script designed to record audio streams hourly and log relevant metadata about the current broadcast. It also ensures the periodic cleanup of old recordings.
 
 ## Features
-
-- **Continuous Recording**: Automatically captures the audio stream from ZuidWest FM every hour.
-- **Metadata Logging**: Fetches and logs the current program name from the broadcast data API, adding context to each recording.
-- **Detailed Log File**: Maintains a comprehensive log file for tracking the script’s activities and any potential errors.
-- **Automatic Cleanup**: Deletes audio files older than 31 days to conserve storage space.
+- **Continuous Recording**: Automatically captures audio streams every hour.
+- **Metadata Logging**: Fetches and logs the current program name from broadcast data APIs, adding context to each recording.
+- **Detailed Log File**: Maintains a comprehensive log file for tracking the script's activities and any potential errors.
+- **Automatic Cleanup**: Deletes audio files based on configurable retention periods.
 - **Debug Mode**: Provides additional output for troubleshooting when enabled.
+- **Multi-Stream Support**: Can record multiple streams simultaneously with different configurations.
 
 ## Prerequisites
-
 The script requires the following tools:
 - `jq` - A command-line JSON processor.
 - `curl` - A command-line tool for transferring data with URLs.
 - `ffmpeg` - A command-line tool for recording, converting, and streaming audio and video.
 
-This script is intended for use with websites based on the [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp), which utilizes the Broadcast Data API from the theme. If you are using a different API, set `PARSE_METADATA` to 0 and use a plaintext file for metadata, or implement your own parsing method.
+This script is intended for use with websites based on the [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp), which utilizes the Broadcast Data API from the theme. If you are using a different API, set `parse_metadata` to 0 and use a plaintext file for metadata.
 
 ## Installation
-
 1. **Clone this repository:**
    ```bash
    git clone https://github.com/oszuidwest/zwfm-audiologger
@@ -32,17 +29,66 @@ This script is intended for use with websites based on the [Streekomroep WordPre
    ```
 
 ## Configuration
+Configuration is done through `streams.json`. The file has two main sections: `global` and `streams`.
 
-Edit the script to specify the recording directory (`RECDIR`), log file path (`LOGFILE`), and other parameters:
-- `STREAMURL`: The URL of the audio stream.
-- `RECDIR`: The directory where audio recordings are stored.
-- `LOGFILE`: The path to the log file for logging script operations.
-- `METADATA_URL`: The API endpoint for fetching broadcast metadata.
-- `KEEP`: The number of days to retain audio recordings.
-- `PARSE_METADATA`: Enables or disables metadata parsing from the Streekomroep WordPress theme.
+### Global Settings
+```json
+{
+  "global": {
+    "rec_dir": "/var/audio",      // Where to store recordings
+    "log_file": "/var/log/audiologger.log",  // Log file location
+    "keep_days": 31,              // Default retention period
+    "debug": 1                    // Enable console logging
+  }
+}
+```
+
+All global settings can be customized.
+
+### Stream Settings
+Each stream in the `streams` section can have these settings:
+
+```json
+{
+  "streams": {
+    "stream_name": {                    // Name used for subdirectory
+      "stream_url": "https://...",      // Stream URL
+      "metadata_url": "https://...",    // Metadata URL
+      "metadata_path": ".some.path",    // JSON path for metadata (if parsing)
+      "parse_metadata": 1,              // Parse JSON (1) or use raw response (0)
+      "keep_days": 31                   // Override global keep_days
+    }
+  }
+}
+```
+
+#### Customizable per stream:
+- `stream_url`: The URL of the audio stream
+- `metadata_url`: Where to fetch program information
+- `metadata_path`: JSON path for metadata extraction (only if parse_metadata: 1)
+- `parse_metadata`: Whether to parse JSON response (1) or use raw response (0)
+- `keep_days`: How long to keep recordings
+
+#### Fixed settings (do not override):
+- Recording time is fixed at 1 hour (3600 seconds)
+- Network settings:
+  - `reconnect_delay_max`: 300 seconds
+  - `rw_timeout`: 10000000
+  - Error codes: 404, 500, 503
+
+### Directory Structure
+The script creates:
+```
+/var/audio/
+  ├── stream_name1/
+  │   ├── 2024-12-19_14.mp3
+  │   └── 2024-12-19_14.meta
+  └── stream_name2/
+      ├── 2024-12-19_14.mp3
+      └── 2024-12-19_14.meta
+```
 
 ## Usage
-
 Schedule the script to run every hour using cron:
 1. Open your crontab:
    ```bash
@@ -53,16 +99,25 @@ Schedule the script to run every hour using cron:
    0 * * * * /path/to/your/zwfm-audiologger/audiologger.sh
    ```
 
-## Debugging
+## Docker Usage
+When using Docker, mount your config file and specify directories in docker-compose:
 
-To enable debug mode, set `DEBUG=1` in the script. This will output debug information to the console to help identify any issues during execution.
+```yaml
+services:
+  audiologger:
+    volumes:
+      - ./audio:/var/audio
+      - ./logs:/var/log
+      - ./streams.json:/app/streams.json:ro
+```
+
+## Debugging
+To enable debug mode, set `debug: 1` in the global section of streams.json. This will output debug information to the console to help identify any issues during execution.
 
 ## Contributing
-
 Contributions are welcome. Please fork the repository, make your changes, and submit a pull request.
 
 # MIT License
-
 Copyright (c) 2024 Streekomroep ZuidWest
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -1,0 +1,23 @@
+{
+  "global": {
+    "rec_dir": "/var/audio",
+    "log_file": "/var/log/audiologger.log",
+    "keep_days": 31,
+    "debug": 1
+  },
+  "streams": {
+    "zuidwest": {
+      "stream_url": "https://icecast.zuidwestfm.nl/zuidwest.mp3",
+      "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",
+      "metadata_path": ".fm.now",
+      "parse_metadata": 1,
+      "keep_days": 31
+    },
+    "radio2": {
+      "stream_url": "https://stream.example.com/radio2.mp3",
+      "metadata_url": "https://api.example.com/radio2/current",
+      "parse_metadata": 0,
+      "keep_days": 14
+    }
+  }
+}
