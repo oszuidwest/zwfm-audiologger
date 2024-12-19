@@ -1,7 +1,7 @@
 #!/bin/bash
-
 # Records hourly segments from a live stream and stores program metadata
 # Designed to be run via cron every hour
+
 CONFIG_FILE=${CONFIG_FILE:-'/app/streams.json'}
 
 # Check if config exists
@@ -26,6 +26,33 @@ log() {
     [[ $DEBUG -eq 1 ]] && echo "$(date '+%Y-%m-%d %H:%M:%S'): $1"
 }
 
+# Function to fetch and store metadata
+fetch_metadata() {
+    local name=$1
+    local metadata_url=$2
+    local metadata_path=$3
+    local parse_metadata=$4
+    local stream_dir=$5
+    local timestamp=$6
+
+    # Get program info
+    {
+        if [[ $parse_metadata -eq 1 && -n "$metadata_path" ]]; then
+            PROGRAM_NAME=$(curl -s --max-time 15 "$metadata_url" 2>/dev/null | jq -r "$metadata_path")
+        else
+            PROGRAM_NAME=$(curl -s --max-time 15 "$metadata_url" 2>/dev/null)
+        fi
+        
+        [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
+        
+        # Store metadata
+        echo "$PROGRAM_NAME" > "${stream_dir}/${timestamp}.meta" || \
+            log "WARNING: Failed to write metadata for $name"
+        
+        log "INFO: Stored metadata for $name - $timestamp - $PROGRAM_NAME"
+    } &
+}
+
 # Check dependencies
 for cmd in ffmpeg curl jq; do
     if ! command -v $cmd &> /dev/null; then
@@ -36,7 +63,6 @@ done
 
 # Create base directory
 mkdir -p "$RECDIR"
-
 TIMESTAMP=$(date +"%Y-%m-%d_%H")
 
 # Process each stream
@@ -65,20 +91,11 @@ while read -r stream_base64; do
         continue
     fi
     
-    # Get program info
-    if [[ $parse_metadata -eq 1 && -n "$metadata_path" ]]; then
-        PROGRAM_NAME=$(curl -s --max-time 5 "$metadata_url" 2>/dev/null | jq -r "$metadata_path")
-    else
-        PROGRAM_NAME=$(curl -s --max-time 5 "$metadata_url" 2>/dev/null)
-    fi
-    [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
-    
-    # Store metadata
-    echo "$PROGRAM_NAME" > "${stream_dir}/${TIMESTAMP}.meta" || \
-        log "WARNING: Failed to write metadata for $name"
+    # Start metadata fetch in background
+    fetch_metadata "$name" "$metadata_url" "$metadata_path" "$parse_metadata" "$stream_dir" "$TIMESTAMP"
     
     # Start recording
-    log "INFO: Starting recording for $name - $TIMESTAMP - $PROGRAM_NAME"
+    log "INFO: Starting recording for $name - $TIMESTAMP"
     ffmpeg -nostdin -loglevel error \
         -t 3600 \
         -reconnect 1 \
@@ -91,4 +108,5 @@ while read -r stream_base64; do
         -c copy \
         -f mp3 \
         -y "${stream_dir}/${TIMESTAMP}.mp3" 2>> "$LOGFILE" & disown
+
 done < <(jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE")
