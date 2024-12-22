@@ -5,9 +5,6 @@
 
 set -euo pipefail
 
-# Ensure we clean up any background processes if the script is interrupted
-trap 'kill 0' EXIT
-
 ###############################################################################
 # CONFIGURATION & DEFAULTS
 ###############################################################################
@@ -23,8 +20,8 @@ fi
 # Load global settings
 RECDIR=$(jq -r '.global.rec_dir // empty' "$CONFIG_FILE")
 LOGFILE=$(jq -r '.global.log_file // empty' "$CONFIG_FILE")
-DEBUG_VAL=$(jq -r '.global.debug // "0"' "$CONFIG_FILE")   # Should be 0 of 1
-KEEP=$(jq -r '.global.keep_days // 7' "$CONFIG_FILE")      # Default to 7 days if not defined
+DEBUG_VAL=$(jq -r '.global.debug // "0"' "$CONFIG_FILE")  # Should be 0 or 1
+KEEP=$(jq -r '.global.keep_days // 7' "$CONFIG_FILE")     # Default to 7 days if not defined
 
 # Validate that RECDIR and LOGFILE were actually loaded from the config
 if [[ -z "$RECDIR" ]]; then
@@ -52,13 +49,14 @@ touch "$LOGFILE"
 # HELPER FUNCTIONS
 ###############################################################################
 
+# Log implementation
 log() {
     local level="$1"
     local msg="$2"
     local timestamp
     timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
     echo "${timestamp} [${level}] ${msg}" >> "$LOGFILE"
-    
+
     # Only echo to console if DEBUG != 0
     if [[ "$DEBUG" -ne 0 ]]; then
         echo "${timestamp} [${level}] ${msg}"
@@ -78,7 +76,7 @@ cleanup_files() {
         else
             log "WARNING" "Failed to clean up old files for ${name}"
         fi
-    } &
+    } >>"$LOGFILE" 2>&1 &
 }
 
 # Fetch and store metadata
@@ -91,7 +89,6 @@ fetch_metadata() {
     local timestamp="$6"
     
     {
-        # Default program name
         local program_name="Unknown Program"
         local curl_out
 
@@ -100,10 +97,9 @@ fetch_metadata() {
 
         if [[ -n "$curl_out" ]]; then
             if [[ "$parse_metadata" -eq 1 && -n "$metadata_path" ]]; then
-                # Use jq path if parse_metadata=1 and we have a metadata_path
                 program_name="$(echo "$curl_out" | jq -r "$metadata_path" 2>/dev/null || echo "Unknown Program")"
             else
-                # Otherwise store the entire output
+                # Otherwise store the entire response
                 program_name="$curl_out"
             fi
         fi
@@ -116,7 +112,7 @@ fetch_metadata() {
         fi
         
         log "INFO" "Stored metadata for ${name} - ${timestamp} - ${program_name}"
-    } &
+    } >>"$LOGFILE" 2>&1 &
 }
 
 ###############################################################################
@@ -138,7 +134,7 @@ done
 mkdir -p "$RECDIR"
 TIMESTAMP=$(date +"%Y-%m-%d_%H")
 
-# Iterate over each stream in 'streams'
+# Iterate over each stream
 while read -r stream_base64; do
     # Decode base64 -> JSON
     stream_json="$(echo "$stream_base64" | base64 -d)"
@@ -154,17 +150,17 @@ while read -r stream_base64; do
     # Use global KEEP if keep_days is not set for this stream
     [[ -z "$keep_days" ]] && keep_days="$KEEP"
     
-    # Check that we have all critical data
+    # Verify critical data
     if [[ -z "$name" || -z "$stream_url" ]]; then
         log "WARNING" "Skipping a stream with invalid config: name='$name', url='$stream_url'"
         continue
     fi
 
-    # Create directory for this stream
+    # Prepare stream directory
     stream_dir="$RECDIR/$name"
     mkdir -p "$stream_dir"
     
-    # Start asynchronous cleanup
+    # Clean up old files asynchronously
     cleanup_files "$stream_dir" "$keep_days" "$name"
     
     # Check if a recording is already running for this stream
@@ -173,10 +169,10 @@ while read -r stream_base64; do
         continue
     fi
     
-    # Fetch metadata in the background
+    # Fetch metadata asynchronously
     fetch_metadata "$name" "$metadata_url" "$metadata_path" "$parse_metadata" "$stream_dir" "$TIMESTAMP"
 
-    # Start recording (1 hour)
+    # Start ffmpeg in background, direct output to log file, and disown
     log "INFO" "Starting recording for ${name} - ${TIMESTAMP}"
     ffmpeg -nostdin -loglevel error \
         -t 3600 \
@@ -189,7 +185,7 @@ while read -r stream_base64; do
         -i "$stream_url" \
         -c copy \
         -f mp3 \
-        -y "${stream_dir}/${TIMESTAMP}.mp3" 2>> "$LOGFILE" & disown
+        -y "${stream_dir}/${TIMESTAMP}.mp3" >>"$LOGFILE" 2>&1 & disown
 
 done < <(jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE")
 
