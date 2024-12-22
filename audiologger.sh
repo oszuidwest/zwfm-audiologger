@@ -11,6 +11,9 @@ set -euo pipefail
 
 CONFIG_FILE=${CONFIG_FILE:-'streams.json'}
 
+# We'll use a "GLOBAL" label for anything that doesn't pertain to a specific station.
+GLOBAL_LABEL="GLOBAL"
+
 # Check if the configuration file exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "ERROR: Config file not found: $CONFIG_FILE"
@@ -49,17 +52,22 @@ touch "$LOGFILE"
 # HELPER FUNCTIONS
 ###############################################################################
 
-# Log implementation
+# Universal logging function with station prefix
 log() {
     local level="$1"
-    local msg="$2"
+    local station="$2"
+    local msg="$3"
+
+    # If station is missing or empty, set it to GLOBAL
+    [[ -z "$station" ]] && station="$GLOBAL_LABEL"
+
     local timestamp
     timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-    echo "${timestamp} [${level}] ${msg}" >> "$LOGFILE"
+    echo "${timestamp} [${level}] [${station}] ${msg}" >> "$LOGFILE"
 
     # Only echo to console if DEBUG != 0
     if [[ "$DEBUG" -ne 0 ]]; then
-        echo "${timestamp} [${level}] ${msg}"
+        echo "${timestamp} [${level}] [${station}] ${msg}"
     fi
 }
 
@@ -67,21 +75,20 @@ log() {
 cleanup_files() {
     local dir="$1"
     local days="$2"
-    local name="$3"
-    
+    local station="$3"
     {
         local minutes=$((days * 1440))
         if find "$dir" -type f -mmin +"$minutes" -print0 2>/dev/null | xargs -0 -r rm 2>/dev/null; then
-            log "INFO" "Completed cleanup for ${name}"
+            log "INFO" "$station" "Completed cleanup"
         else
-            log "WARNING" "Failed to clean up old files for ${name}"
+            log "WARNING" "$station" "Failed to clean up old files"
         fi
     } >>"$LOGFILE" 2>&1 &
 }
 
 # Fetch and store metadata
 fetch_metadata() {
-    local name="$1"
+    local station="$1"
     local metadata_url="$2"
     local metadata_path="$3"
     local parse_metadata="$4"
@@ -89,7 +96,6 @@ fetch_metadata() {
     local timestamp="$6"
     
     {
-        # Default program name
         local program_name="Unknown Program"
         local curl_out
 
@@ -100,7 +106,6 @@ fetch_metadata() {
             if [[ "$parse_metadata" -eq 1 && -n "$metadata_path" ]]; then
                 program_name="$(echo "$curl_out" | jq -r "$metadata_path" 2>/dev/null || echo "Unknown Program")"
             else
-                # Otherwise store the entire response
                 program_name="$curl_out"
             fi
         fi
@@ -109,10 +114,10 @@ fetch_metadata() {
 
         # Write to .meta file
         if ! echo "$program_name" > "${stream_dir}/${timestamp}.meta"; then
-            log "WARNING" "Failed to write metadata for ${name}"
+            log "WARNING" "$station" "Failed to write metadata"
         fi
         
-        log "INFO" "Stored metadata for ${name} - ${timestamp} - ${program_name}"
+        log "INFO" "$station" "Stored metadata - ${timestamp} - ${program_name}"
     } >>"$LOGFILE" 2>&1 &
 }
 
@@ -122,7 +127,7 @@ fetch_metadata() {
 
 for cmd in ffmpeg curl jq xargs; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo "ERROR: ${cmd} is not installed or not in the PATH."
+        log "ERROR" "$GLOBAL_LABEL" "${cmd} is not installed or not in the PATH."
         exit 1
     fi
 done
@@ -153,7 +158,7 @@ while read -r stream_base64; do
     
     # Verify critical data
     if [[ -z "$name" || -z "$stream_url" ]]; then
-        log "WARNING" "Skipping a stream with invalid config: name='$name', url='$stream_url'"
+        log "WARNING" "$GLOBAL_LABEL" "Skipping a stream with invalid config"
         continue
     fi
 
@@ -166,27 +171,31 @@ while read -r stream_base64; do
     
     # Check if a recording is already running for this stream
     if pgrep -af "ffmpeg.*${stream_url}.*${TIMESTAMP}" &>/dev/null; then
-        log "WARNING" "Recording for ${name} ${TIMESTAMP} is already running"
+        log "WARNING" "$name" "Recording for this station is already running"
         continue
     fi
     
     # Fetch metadata asynchronously
     fetch_metadata "$name" "$metadata_url" "$metadata_path" "$parse_metadata" "$stream_dir" "$TIMESTAMP"
 
-    # Start ffmpeg in background, direct output to log file, and disown
-    log "INFO" "Starting recording for ${name} - ${TIMESTAMP}"
-    ffmpeg -nostdin -loglevel error \
-        -t 3600 \
-        -reconnect 1 \
-        -reconnect_at_eof 1 \
-        -reconnect_streamed 1 \
-        -reconnect_delay_max 300 \
-        -reconnect_on_http_error 404,500,503 \
-        -rw_timeout 10000000 \
-        -i "$stream_url" \
-        -c copy \
-        -f mp3 \
-        -y "${stream_dir}/${TIMESTAMP}.mp3" >>"$LOGFILE" 2>&1 & disown
+    # Start ffmpeg in the background and capture output
+    log "INFO" "$name" "Starting recording - ${TIMESTAMP}"
+    (
+        ffmpeg -nostdin -loglevel error \
+            -t 3600 \
+            -reconnect 1 \
+            -reconnect_at_eof 1 \
+            -reconnect_streamed 1 \
+            -reconnect_delay_max 300 \
+            -reconnect_on_http_error 404,500,503 \
+            -rw_timeout 10000000 \
+            -i "$stream_url" \
+            -c copy \
+            -f mp3 \
+            -y "${stream_dir}/${TIMESTAMP}.mp3"
+    ) 2>&1 | while IFS= read -r line; do
+        log "INFO" "$name" "$line"
+    done & disown
 
 done < <(jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE")
 
