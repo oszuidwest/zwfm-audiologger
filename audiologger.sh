@@ -32,7 +32,10 @@ cleanup_files() {
     local days=$2
     local name=$3
     {
-        find "$dir" -type f -mtime "+$days" -print0 | xargs -0 -r rm 2>/dev/null || \
+        # Calculate the number of minutes based on the days in the configuration
+        local minutes=$((days * 1440))
+        
+        find "$dir" -type f -mmin +"$minutes" -print0 | xargs -0 -r rm 2>/dev/null || \
             log "WARNING: Failed to cleanup old files for $name"
         log "INFO: Completed cleanup for $name"
     } &
