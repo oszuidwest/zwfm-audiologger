@@ -89,6 +89,7 @@ fetch_metadata() {
     local timestamp="$6"
     
     {
+        # Default program name
         local program_name="Unknown Program"
         local curl_out
 
