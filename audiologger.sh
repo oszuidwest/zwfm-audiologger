@@ -1,117 +1,183 @@
-#!/bin/bash
-# Records hourly segments from a live stream and stores program metadata
-# Designed to be run via cron every hour
+#!/usr/bin/env bash
+#
+# Records hourly segments from a live stream and stores program metadata.
+# Designed to be run via cron every hour.
 
-CONFIG_FILE=${CONFIG_FILE:-'/app/streams.json'}
+set -euo pipefail
 
-# Check if config exists
+# Ensure we clean up any background processes if the script is interrupted
+trap 'kill 0' EXIT
+
+###############################################################################
+# CONFIGURATION & DEFAULTS
+###############################################################################
+
+CONFIG_FILE=${CONFIG_FILE:-'streams.json'}
+
+# Check if the configuration file exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "ERROR: Config file not found: $CONFIG_FILE"
     exit 1
 fi
 
 # Load global settings
-RECDIR=$(jq -r '.global.rec_dir' "$CONFIG_FILE")
-LOGFILE=$(jq -r '.global.log_file' "$CONFIG_FILE")
-DEBUG=$(jq -r '.global.debug' "$CONFIG_FILE")
-KEEP=$(jq -r '.global.keep_days' "$CONFIG_FILE")
+RECDIR=$(jq -r '.global.rec_dir // empty' "$CONFIG_FILE")
+LOGFILE=$(jq -r '.global.log_file // empty' "$CONFIG_FILE")
+DEBUG_VAL=$(jq -r '.global.debug // "0"' "$CONFIG_FILE")   # Should be 0 of 1
+KEEP=$(jq -r '.global.keep_days // 7' "$CONFIG_FILE")      # Default to 7 days if not defined
 
-# Setup logging
+# Validate that RECDIR and LOGFILE were actually loaded from the config
+if [[ -z "$RECDIR" ]]; then
+    echo "ERROR: 'rec_dir' is not specified in $CONFIG_FILE"
+    exit 1
+fi
+
+if [[ -z "$LOGFILE" ]]; then
+    echo "ERROR: 'log_file' is not specified in $CONFIG_FILE"
+    exit 1
+fi
+
+# DEBUG is expected to be either 0 or 1; if not numeric, default to 0
+if [[ "$DEBUG_VAL" =~ ^[0-9]+$ ]]; then
+    DEBUG=$DEBUG_VAL
+else
+    DEBUG=0
+fi
+
+# Prepare the log file
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
 
-# Log with timestamps
+###############################################################################
+# HELPER FUNCTIONS
+###############################################################################
+
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S'): $1" >> "$LOGFILE"
-    [[ $DEBUG -eq 1 ]] && echo "$(date '+%Y-%m-%d %H:%M:%S'): $1"
+    local level="$1"
+    local msg="$2"
+    local timestamp
+    timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    echo "${timestamp} [${level}] ${msg}" >> "$LOGFILE"
+    
+    # Only echo to console if DEBUG != 0
+    if [[ "$DEBUG" -ne 0 ]]; then
+        echo "${timestamp} [${level}] ${msg}"
+    fi
 }
 
-# Function to clean old files asynchronously
+# Asynchronously clean up old files
 cleanup_files() {
-    local dir=$1
-    local days=$2
-    local name=$3
+    local dir="$1"
+    local days="$2"
+    local name="$3"
+    
     {
-        # Calculate the number of minutes based on the days in the configuration
         local minutes=$((days * 1440))
-        
-        find "$dir" -type f -mmin +"$minutes" -print0 | xargs -0 -r rm 2>/dev/null || \
-            log "WARNING: Failed to cleanup old files for $name"
-        log "INFO: Completed cleanup for $name"
+        if find "$dir" -type f -mmin +"$minutes" -print0 2>/dev/null | xargs -0 -r rm 2>/dev/null; then
+            log "INFO" "Completed cleanup for ${name}"
+        else
+            log "WARNING" "Failed to clean up old files for ${name}"
+        fi
     } &
 }
 
-# Function to fetch and store metadata
+# Fetch and store metadata
 fetch_metadata() {
-    local name=$1
-    local metadata_url=$2
-    local metadata_path=$3
-    local parse_metadata=$4
-    local stream_dir=$5
-    local timestamp=$6
-
-    # Get program info
+    local name="$1"
+    local metadata_url="$2"
+    local metadata_path="$3"
+    local parse_metadata="$4"
+    local stream_dir="$5"
+    local timestamp="$6"
+    
     {
-        if [[ $parse_metadata -eq 1 && -n "$metadata_path" ]]; then
-            PROGRAM_NAME=$(curl -s --max-time 15 "$metadata_url" 2>/dev/null | jq -r "$metadata_path")
-        else
-            PROGRAM_NAME=$(curl -s --max-time 15 "$metadata_url" 2>/dev/null)
+        # Default program name
+        local program_name="Unknown Program"
+        local curl_out
+
+        # Fetch data from metadata_url (with a 15s timeout)
+        curl_out="$(curl -s --max-time 15 "$metadata_url" 2>/dev/null || true)"
+
+        if [[ -n "$curl_out" ]]; then
+            if [[ "$parse_metadata" -eq 1 && -n "$metadata_path" ]]; then
+                # Use jq path if parse_metadata=1 and we have a metadata_path
+                program_name="$(echo "$curl_out" | jq -r "$metadata_path" 2>/dev/null || echo "Unknown Program")"
+            else
+                # Otherwise store the entire output
+                program_name="$curl_out"
+            fi
         fi
         
-        [[ -z "$PROGRAM_NAME" || "$PROGRAM_NAME" == "null" ]] && PROGRAM_NAME="Unknown Program"
+        [[ -z "$program_name" || "$program_name" == "null" ]] && program_name="Unknown Program"
+
+        # Write to .meta file
+        if ! echo "$program_name" > "${stream_dir}/${timestamp}.meta"; then
+            log "WARNING" "Failed to write metadata for ${name}"
+        fi
         
-        # Store metadata
-        echo "$PROGRAM_NAME" > "${stream_dir}/${timestamp}.meta" || \
-            log "WARNING: Failed to write metadata for $name"
-        
-        log "INFO: Stored metadata for $name - $timestamp - $PROGRAM_NAME"
+        log "INFO" "Stored metadata for ${name} - ${timestamp} - ${program_name}"
     } &
 }
 
-# Check dependencies
+###############################################################################
+# VALIDATE REQUIRED COMMANDS
+###############################################################################
+
 for cmd in ffmpeg curl jq xargs; do
-    if ! command -v $cmd &> /dev/null; then
-        log "ERROR: $cmd is not installed."
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "ERROR: ${cmd} is not installed or not in the PATH."
         exit 1
     fi
 done
 
-# Create base directory
+###############################################################################
+# MAIN LOGIC
+###############################################################################
+
+# Make sure the recording directory exists
 mkdir -p "$RECDIR"
 TIMESTAMP=$(date +"%Y-%m-%d_%H")
 
-# Process each stream
+# Iterate over each stream in 'streams'
 while read -r stream_base64; do
-    # Decode stream config
-    stream_json=$(echo "$stream_base64" | base64 -d)
+    # Decode base64 -> JSON
+    stream_json="$(echo "$stream_base64" | base64 -d)"
+    
+    # Read fields
     name=$(echo "$stream_json" | jq -r '.key')
     stream_url=$(echo "$stream_json" | jq -r '.value.stream_url')
     metadata_url=$(echo "$stream_json" | jq -r '.value.metadata_url')
     metadata_path=$(echo "$stream_json" | jq -r '.value.metadata_path // empty')
     parse_metadata=$(echo "$stream_json" | jq -r '.value.parse_metadata // 0')
     keep_days=$(echo "$stream_json" | jq -r '.value.keep_days // empty')
+
+    # Use global KEEP if keep_days is not set for this stream
+    [[ -z "$keep_days" ]] && keep_days="$KEEP"
     
-    # Use stream-specific keep_days or fall back to global KEEP
-    [[ -z "$keep_days" ]] && keep_days=$KEEP
-    
-    # Create stream directory
+    # Check that we have all critical data
+    if [[ -z "$name" || -z "$stream_url" ]]; then
+        log "WARNING" "Skipping a stream with invalid config: name='$name', url='$stream_url'"
+        continue
+    fi
+
+    # Create directory for this stream
     stream_dir="$RECDIR/$name"
     mkdir -p "$stream_dir"
     
-    # Start async cleanup
+    # Start asynchronous cleanup
     cleanup_files "$stream_dir" "$keep_days" "$name"
     
-    # Check for existing recording
-    if pgrep -af "ffmpeg.*$stream_url.*$TIMESTAMP" > /dev/null; then
-        log "WARNING: Recording for $name $TIMESTAMP already running"
+    # Check if a recording is already running for this stream
+    if pgrep -af "ffmpeg.*${stream_url}.*${TIMESTAMP}" &>/dev/null; then
+        log "WARNING" "Recording for ${name} ${TIMESTAMP} is already running"
         continue
     fi
     
-    # Start metadata fetch in background
+    # Fetch metadata in the background
     fetch_metadata "$name" "$metadata_url" "$metadata_path" "$parse_metadata" "$stream_dir" "$TIMESTAMP"
-    
-    # Start recording
-    log "INFO: Starting recording for $name - $TIMESTAMP"
+
+    # Start recording (1 hour)
+    log "INFO" "Starting recording for ${name} - ${TIMESTAMP}"
     ffmpeg -nostdin -loglevel error \
         -t 3600 \
         -reconnect 1 \
@@ -126,3 +192,5 @@ while read -r stream_base64; do
         -y "${stream_dir}/${TIMESTAMP}.mp3" 2>> "$LOGFILE" & disown
 
 done < <(jq -r '.streams | to_entries[] | @base64' "$CONFIG_FILE")
+
+exit 0
