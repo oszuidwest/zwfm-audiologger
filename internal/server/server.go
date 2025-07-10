@@ -28,7 +28,7 @@ type Server struct {
 
 // New creates a new Server instance
 func New(cfg *config.Config, log *logger.Logger) *Server {
-	cache := NewCache(cfg.Server.CacheDir, cfg.Server.CacheTTL)
+	cache := NewCache(cfg.Server.CacheDir, time.Duration(cfg.Server.CacheTTL))
 	
 	return &Server{
 		config:   cfg,
@@ -54,32 +54,35 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	router.Use(s.loggingMiddleware)
 	router.Use(s.corsMiddleware)
 	
-	// Health check endpoint
+	// API versioning
+	api := router.PathPrefix("/api/v1").Subrouter()
+	
+	// Health and system endpoints
 	router.HandleFunc("/health", s.healthHandler).Methods("GET")
+	router.HandleFunc("/ready", s.readinessHandler).Methods("GET")
 	
-	// Cache stats endpoint
-	router.HandleFunc("/cache/stats", s.cacheStatsHandler).Methods("GET")
+	api.HandleFunc("/system/cache", s.cacheStatsHandler).Methods("GET")
+	api.HandleFunc("/system/stats", s.systemStatsHandler).Methods("GET")
 	
-	// List streams endpoint
-	router.HandleFunc("/streams", s.streamsHandler).Methods("GET")
+	// Streams endpoints
+	api.HandleFunc("/streams", s.streamsHandler).Methods("GET")
+	api.HandleFunc("/streams/{stream}", s.streamDetailsHandler).Methods("GET")
 	
-	// List recordings for a stream
-	router.HandleFunc("/streams/{stream}/recordings", s.recordingsHandler).Methods("GET")
+	// Recordings endpoints
+	api.HandleFunc("/streams/{stream}/recordings", s.recordingsHandler).Methods("GET")
+	api.HandleFunc("/streams/{stream}/recordings/{timestamp}", s.recordingHandler).Methods("GET")
+	api.HandleFunc("/streams/{stream}/recordings/{timestamp}/metadata", s.metadataHandler).Methods("GET")
+	api.HandleFunc("/streams/{stream}/recordings/{timestamp}/download", s.downloadRecordingHandler).Methods("GET")
 	
-	// Get metadata for a recording
-	router.HandleFunc("/streams/{stream}/recordings/{timestamp}/metadata", s.metadataHandler).Methods("GET")
+	// Audio segment endpoints
+	api.HandleFunc("/streams/{stream}/segments", s.audioSegmentHandler).Methods("GET")
 	
-	// Serve audio segments
-	router.HandleFunc("/streams/{stream}/audio", s.audioSegmentHandler).Methods("GET")
-	
-	// Full recording download
-	router.HandleFunc("/streams/{stream}/recordings/{timestamp}", s.fullRecordingHandler).Methods("GET")
 
 	s.server = &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
-		ReadTimeout:  s.config.Server.ReadTimeout,
-		WriteTimeout: s.config.Server.WriteTimeout,
+		ReadTimeout:  time.Duration(s.config.Server.ReadTimeout),
+		WriteTimeout: time.Duration(s.config.Server.WriteTimeout),
 	}
 
 	// Start server in goroutine
@@ -93,24 +96,12 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	<-ctx.Done()
 	
 	// Graceful shutdown
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.config.Server.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.Server.ShutdownTimeout))
 	defer cancel()
 	
 	return s.server.Shutdown(shutdownCtx)
 }
 
-// Helper methods for file operations
-func (s *Server) getStreamDir(streamName string) string {
-	return utils.StreamDir(s.config.RecordingDir, streamName)
-}
-
-func (s *Server) getRecordingPath(streamName, timestamp string) string {
-	return utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
-}
-
-func (s *Server) fileExists(path string) bool {
-	return utils.FileExists(path)
-}
 
 // audioSegmentHandler serves audio segments based on start and end time from hourly recordings
 func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +109,7 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	streamName := vars["stream"]
 	
 	if _, exists := s.config.Streams[streamName]; !exists {
-		s.writeError(w, http.StatusNotFound, "Stream not found")
+		s.writeAPIError(w, http.StatusNotFound, "Stream not found", "")
 		return
 	}
 	
@@ -127,24 +118,24 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	endTimeStr := r.URL.Query().Get("end")
 	
 	if startTimeStr == "" || endTimeStr == "" {
-		s.writeError(w, http.StatusBadRequest, "start and end parameters are required (RFC3339 format)")
+		s.writeAPIError(w, http.StatusBadRequest, "start and end parameters are required (RFC3339 format)", "")
 		return
 	}
 	
 	startTime, err := time.Parse(time.RFC3339, startTimeStr)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid start time format (RFC3339 required)")
+		s.writeAPIError(w, http.StatusBadRequest, "Invalid start time format (RFC3339 required)", "")
 		return
 	}
 	
 	endTime, err := time.Parse(time.RFC3339, endTimeStr)
 	if err != nil {
-		s.writeError(w, http.StatusBadRequest, "Invalid end time format (RFC3339 required)")
+		s.writeAPIError(w, http.StatusBadRequest, "Invalid end time format (RFC3339 required)", "")
 		return
 	}
 	
 	if endTime.Before(startTime) || endTime.Equal(startTime) {
-		s.writeError(w, http.StatusBadRequest, "End time must be after start time")
+		s.writeAPIError(w, http.StatusBadRequest, "End time must be after start time", "")
 		return
 	}
 	
@@ -152,14 +143,14 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	segment, err := s.generateAudioSegmentFromHourlyRecording(streamName, startTime, endTime)
 	if err != nil {
 		s.logger.Error("Failed to generate audio segment: ", err)
-		s.writeError(w, http.StatusInternalServerError, "Failed to generate audio segment: "+err.Error())
+		s.writeAPIError(w, http.StatusInternalServerError, "Failed to generate audio segment", err.Error())
 		return
 	}
 	
 	// Serve the segment
 	w.Header().Set("Content-Type", "audio/mpeg")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s_%s.mp3\"", 
-		streamName, startTime.Format("2006-01-02_15-04-05"), endTime.Format("2006-01-02_15-04-05")))
+		streamName, startTime.Format("2006-01-02-15-04-05"), endTime.Format("2006-01-02-15-04-05")))
 	
 	http.ServeFile(w, r, segment)
 	
@@ -180,19 +171,36 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 		return cachedPath, nil
 	}
 	
-	// Find the hourly recording that contains the start time
-	recordingHour := time.Date(startTime.Year(), startTime.Month(), startTime.Day(), startTime.Hour(), 0, 0, 0, startTime.Location())
-	timestamp := recordingHour.Format("2006-01-02_15")
+	// Convert to server timezone (recordings are made in server timezone)
+	// Load Europe/Amsterdam timezone to match Docker container timezone
+	loc, err := time.LoadLocation("Europe/Amsterdam")
+	if err != nil {
+		s.logger.Error("Failed to load timezone: ", err)
+		loc = time.Local // fallback to server local time
+	}
 	
-	recordingPath := s.getRecordingPath(streamName, timestamp)
+	// Convert input times to server timezone
+	startTimeLocal := startTime.In(loc)
+	endTimeLocal := endTime.In(loc)
 	
-	if !s.fileExists(recordingPath) {
+	// Debug logging for timezone conversion
+	s.logger.Debug(fmt.Sprintf("Timezone conversion - Input: %s -> Local: %s", startTime.Format(time.RFC3339), startTimeLocal.Format(time.RFC3339)))
+	
+	// Find the hourly recording that contains the start time (in server timezone)
+	recordingHour := time.Date(startTimeLocal.Year(), startTimeLocal.Month(), startTimeLocal.Day(), startTimeLocal.Hour(), 0, 0, 0, loc)
+	timestamp := utils.FormatTimestamp(recordingHour)
+	
+	s.logger.Debug(fmt.Sprintf("Looking for recording: %s", timestamp))
+	
+	recordingPath := utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
+	
+	if !utils.FileExists(recordingPath) {
 		return "", fmt.Errorf("hourly recording not found for %s", timestamp)
 	}
 	
-	// Calculate offset from start of the hour
-	offsetFromHour := startTime.Sub(recordingHour)
-	duration := endTime.Sub(startTime)
+	// Calculate offset from start of the hour (using local times)
+	offsetFromHour := startTimeLocal.Sub(recordingHour)
+	duration := endTimeLocal.Sub(startTimeLocal)
 	
 	// Create temporary output file with Go 1.22+ improved temp file handling
 	tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("segment_%s_%d.mp3", streamName, time.Now().UnixNano()))
@@ -235,10 +243,16 @@ func (s *Server) cacheStatsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, stats)
 }
 
+// BasicRecording represents a basic recording for internal use
+type BasicRecording struct {
+	Timestamp string
+	Size      int64
+}
+
 // getRecordings returns list of recordings for a stream
-func (s *Server) getRecordings(streamName string) ([]Recording, error) {
-	streamDir := s.getStreamDir(streamName)
-	var recordings []Recording
+func (s *Server) getRecordings(streamName string) ([]BasicRecording, error) {
+	streamDir := utils.StreamDir(s.config.RecordingDir, streamName)
+	var recordings []BasicRecording
 	
 	err := filepath.Walk(streamDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -247,7 +261,7 @@ func (s *Server) getRecordings(streamName string) ([]Recording, error) {
 		
 		if !info.IsDir() && strings.HasSuffix(path, ".mp3") {
 			timestamp := strings.TrimSuffix(filepath.Base(path), ".mp3")
-			recordings = append(recordings, Recording{
+			recordings = append(recordings, BasicRecording{
 				Timestamp: timestamp,
 				Size:      info.Size(),
 			})

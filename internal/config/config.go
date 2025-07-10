@@ -23,19 +23,45 @@ type Stream struct {
 	URL              string        `json:"stream_url"`
 	MetadataURL      string        `json:"metadata_url,omitempty"`
 	MetadataJSONPath string        `json:"metadata_path,omitempty"`
-	ParseMetadata    int           `json:"parse_metadata,omitempty"`
+	ParseMetadata    bool          `json:"parse_metadata,omitempty"`
 	KeepDays         int           `json:"keep_days,omitempty"`
 	RecordDuration   time.Duration `json:"record_duration,omitempty"`
 }
 
+// Duration wraps time.Duration to provide custom JSON unmarshaling
+type Duration time.Duration
+
+// UnmarshalJSON implements json.Unmarshaler for Duration
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	
+	switch value := v.(type) {
+	case float64:
+		*d = Duration(time.Duration(value))
+	case string:
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		*d = Duration(duration)
+	default:
+		return fmt.Errorf("invalid duration format")
+	}
+	
+	return nil
+}
+
 // ServerConfig represents HTTP server configuration
 type ServerConfig struct {
-	Port            int           `json:"port"`
-	ReadTimeout     time.Duration `json:"read_timeout"`
-	WriteTimeout    time.Duration `json:"write_timeout"`
-	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
-	CacheDir        string        `json:"cache_dir"`
-	CacheTTL        time.Duration `json:"cache_ttl"`
+	Port            int      `json:"port"`
+	ReadTimeout     Duration `json:"read_timeout"`
+	WriteTimeout    Duration `json:"write_timeout"`
+	ShutdownTimeout Duration `json:"shutdown_timeout"`
+	CacheDir        string   `json:"cache_dir"`
+	CacheTTL        Duration `json:"cache_ttl"`
 }
 
 // Load loads configuration from a JSON file
@@ -69,19 +95,19 @@ func (c *Config) validate() (*Config, error) {
 		c.Server.Port = 8080
 	}
 	if c.Server.ReadTimeout == 0 {
-		c.Server.ReadTimeout = 30 * time.Second
+		c.Server.ReadTimeout = Duration(30 * time.Second)
 	}
 	if c.Server.WriteTimeout == 0 {
-		c.Server.WriteTimeout = 30 * time.Second
+		c.Server.WriteTimeout = Duration(30 * time.Second)
 	}
 	if c.Server.ShutdownTimeout == 0 {
-		c.Server.ShutdownTimeout = 10 * time.Second
+		c.Server.ShutdownTimeout = Duration(10 * time.Second)
 	}
 	if c.Server.CacheDir == "" {
 		c.Server.CacheDir = filepath.Join(c.RecordingDir, "cache")
 	}
 	if c.Server.CacheTTL == 0 {
-		c.Server.CacheTTL = 24 * time.Hour
+		c.Server.CacheTTL = Duration(24 * time.Hour)
 	}
 
 	// Validate streams

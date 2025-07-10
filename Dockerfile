@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o bin/audiologger ./cmd/audiologger
+RUN go build -o bin/audiologger ./cmd/audiologger/main.go
 
 # Runtime stage
 FROM alpine:latest

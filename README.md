@@ -164,39 +164,60 @@ sudo systemctl status audiologger
 
 ## 📡 HTTP API
 
-### Endpoints
+### API Endpoints
 
+#### System Endpoints
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Health check |
-| `GET` | `/streams` | List available streams |
-| `GET` | `/streams/{stream}/recordings` | List recordings |
-| `GET` | `/streams/{stream}/recordings/{timestamp}` | Download full recording |
-| `GET` | `/streams/{stream}/recordings/{timestamp}/metadata` | Get metadata |
-| `GET` | `/streams/{stream}/audio?start={RFC3339}&end={RFC3339}` | Get audio segment |
-| `GET` | `/cache/stats` | Cache statistics |
+| `GET` | `/ready` | Readiness check |
+
+#### API v1 Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/streams` | List streams with details |
+| `GET` | `/api/v1/streams/{stream}` | Get stream details |
+| `GET` | `/api/v1/streams/{stream}/recordings` | List recordings with metadata |
+| `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}` | Get recording info |
+| `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}/download` | Download recording |
+| `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}/metadata` | Get metadata |
+| `GET` | `/api/v1/streams/{stream}/segments?start={RFC3339}&end={RFC3339}` | Get audio segment |
+| `GET` | `/api/v1/system/cache` | Cache statistics |
+| `GET` | `/api/v1/system/stats` | System statistics |
+
 
 ### Example API Usage
-
 ```bash
-# Health check
+# Health and readiness checks
 curl http://localhost:8080/health
+curl http://localhost:8080/ready
 
-# List streams
-curl http://localhost:8080/streams
+# List streams with detailed information
+curl http://localhost:8080/api/v1/streams | jq
 
-# List recordings
-curl http://localhost:8080/streams/zuidwest/recordings
+# Get specific stream details
+curl http://localhost:8080/api/v1/streams/zuidwest | jq
 
-# Get 5-minute segment
-curl "http://localhost:8080/streams/zuidwest/audio?start=2024-01-15T14:30:00Z&end=2024-01-15T14:35:00Z" -o segment.mp3
+# List recordings with metadata
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings | jq
 
-# Download full recording
-curl http://localhost:8080/streams/zuidwest/recordings/2024-01-15_14 -o recording.mp3
+# Get recording information
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15_14 | jq
 
-# Cache statistics
-curl http://localhost:8080/cache/stats
+# Download recording
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15_14/download -o recording.mp3
+
+# Get metadata
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15_14/metadata | jq
+
+# Get 5-minute audio segment
+curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-01-15T14:30:00Z&end=2024-01-15T14:35:00Z" -o segment.mp3
+
+# System statistics
+curl http://localhost:8080/api/v1/system/stats | jq
+curl http://localhost:8080/api/v1/system/cache | jq
 ```
+
 
 ## 🐳 Docker Deployment
 

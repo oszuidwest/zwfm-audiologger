@@ -60,7 +60,7 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 
 // RecordAll records all configured streams
 func (r *Recorder) RecordAll(ctx context.Context) error {
-	timestamp := utils.FormatTimestamp(time.Now())
+	timestamp := utils.GetCurrentHour()
 	
 	// Ensure recording directory exists
 	if err := utils.EnsureDir(r.config.RecordingDir); err != nil {

@@ -40,8 +40,12 @@ func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, time
 		return
 	}
 
+	log.Debug(fmt.Sprintf("Fetching metadata from: %s", stream.MetadataURL))
+	log.Debug(fmt.Sprintf("Parse metadata: %t, JSON path: %s", stream.ParseMetadata, stream.MetadataJSONPath))
+
 	programName := f.fetchProgramName(stream)
 	if programName == "" {
+		log.Warn("No program name found, using fallback")
 		programName = "Unknown Program"
 	}
 
@@ -91,10 +95,18 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 	bodyStr := string(body)
 	
 	// Parse JSON if parse_metadata is enabled and path is provided
-	if stream.ParseMetadata == 1 && stream.MetadataJSONPath != "" {
-		result := gjson.Get(bodyStr, stream.MetadataJSONPath)
+	if stream.ParseMetadata && stream.MetadataJSONPath != "" {
+		// Clean the JSON path (remove leading dot if present)
+		jsonPath := strings.TrimPrefix(stream.MetadataJSONPath, ".")
+		
+		f.logger.Debug(fmt.Sprintf("Parsing metadata with path '%s' from JSON: %s", jsonPath, bodyStr))
+		
+		result := gjson.Get(bodyStr, jsonPath)
 		if result.Exists() {
+			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
 			return result.String()
+		} else {
+			f.logger.Error(fmt.Sprintf("JSON path '%s' not found in response", jsonPath))
 		}
 	}
 

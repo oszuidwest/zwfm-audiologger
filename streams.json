@@ -15,15 +15,15 @@
     "zuidwest": {
       "stream_url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
       "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",
-      "metadata_path": ".fm.now",
-      "parse_metadata": 1,
+      "metadata_path": "fm.now",
+      "parse_metadata": true,
       "keep_days": 31
     },
     "rucphen": {
       "stream_url": "https://icecast.zuidwest.cloud/radiorucphen.mp3",
       "metadata_url": "https://rucphen.zuidwest.cloud/proxy.php",
-      "metadata_path": ".fm.now",
-      "parse_metadata": 1,
+      "metadata_path": "fm.now",
+      "parse_metadata": true,
       "keep_days": 31
     }
   }

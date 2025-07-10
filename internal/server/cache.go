@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
 // CacheEntry represents a cached segment
@@ -40,7 +42,7 @@ func (c *Cache) Init() error {
 
 // generateCacheKey generates a cache key for a segment request
 func (c *Cache) generateCacheKey(streamName string, startTime, endTime time.Time) string {
-	data := fmt.Sprintf("%s-%s-%s", streamName, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	data := fmt.Sprintf("%s-%s-%s", streamName, utils.ToAPIString(startTime), utils.ToAPIString(endTime))
 	hash := sha256.Sum256([]byte(data))
 	return base64.URLEncoding.EncodeToString(hash[:])
 }

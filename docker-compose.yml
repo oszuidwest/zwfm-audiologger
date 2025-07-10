@@ -11,6 +11,7 @@ services:
       - ./logs:/var/log
     environment:
       - CONFIG_FILE=/app/streams.json
+      - TZ=Europe/Amsterdam
 
 volumes:
   audiologger-data:
