@@ -17,14 +17,8 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(ww, r)
 		
 		// Log the request
-		s.logger.WithFields(map[string]interface{}{
-			"method":      r.Method,
-			"url":         r.URL.Path,
-			"status":      ww.statusCode,
-			"duration_ms": time.Since(start).Milliseconds(),
-			"remote_addr": r.RemoteAddr,
-			"user_agent":  r.UserAgent(),
-		}).Info("HTTP request")
+		s.logger.Infof("%s %s %d %dms %s", 
+			r.Method, r.URL.Path, ww.statusCode, time.Since(start).Milliseconds(), r.RemoteAddr)
 	})
 }
 

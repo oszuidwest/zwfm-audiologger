@@ -52,11 +52,11 @@ func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, time
 	// Write metadata to file
 	metaFile := filepath.Join(streamDir, timestamp+".meta")
 	if err := os.WriteFile(metaFile, []byte(programName), 0644); err != nil {
-		log.Error("Failed to write metadata file: ", err)
+		log.Errorf("Failed to write metadata file: %v", err)
 		return
 	}
 
-	log.Info("Stored metadata - ", timestamp, " - ", programName)
+	log.Infof("Stored metadata - %s - %s", timestamp, programName)
 }
 
 // fetchProgramName fetches the program name from the metadata URL
@@ -66,29 +66,29 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", stream.MetadataURL, nil)
 	if err != nil {
-		f.logger.Error("Failed to create metadata request: ", err)
+		f.logger.Errorf("Failed to create metadata request: %v", err)
 		return ""
 	}
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		f.logger.Error("Failed to fetch metadata: ", err)
+		f.logger.Errorf("Failed to fetch metadata: %v", err)
 		return ""
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			f.logger.Error("Failed to close response body: ", err)
+			f.logger.Errorf("Failed to close response body: %v", err)
 		}
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		f.logger.Error("Metadata request failed with status: ", resp.StatusCode)
+		f.logger.Errorf("Metadata request failed with status: %d", resp.StatusCode)
 		return ""
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		f.logger.Error("Failed to read metadata response: ", err)
+		f.logger.Errorf("Failed to read metadata response: %v", err)
 		return ""
 	}
 
@@ -106,7 +106,7 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
 			return result.String()
 		} else {
-			f.logger.Error(fmt.Sprintf("JSON path '%s' not found in response", jsonPath))
+			f.logger.Errorf("JSON path '%s' not found in response", jsonPath)
 		}
 	}
 

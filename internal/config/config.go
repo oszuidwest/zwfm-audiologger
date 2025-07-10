@@ -25,7 +25,7 @@ type Stream struct {
 	MetadataJSONPath string        `json:"metadata_path,omitempty"`
 	ParseMetadata    bool          `json:"parse_metadata,omitempty"`
 	KeepDays         int           `json:"keep_days,omitempty"`
-	RecordDuration   time.Duration `json:"record_duration,omitempty"`
+	RecordDuration   Duration `json:"record_duration,omitempty"`
 }
 
 // Duration wraps time.Duration to provide custom JSON unmarshaling
@@ -119,7 +119,7 @@ func (c *Config) validate() (*Config, error) {
 			stream.KeepDays = c.KeepDays
 		}
 		if stream.RecordDuration == 0 {
-			stream.RecordDuration = time.Hour
+			stream.RecordDuration = Duration(time.Hour)
 		}
 		c.Streams[name] = stream
 	}

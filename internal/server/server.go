@@ -88,7 +88,8 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	// Start server in goroutine
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Fatal("Server failed to start: ", err)
+			s.logger.Errorf("Server failed to start: %v", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -142,7 +143,7 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	// Generate audio segment from hourly recording
 	segment, err := s.generateAudioSegmentFromHourlyRecording(streamName, startTime, endTime)
 	if err != nil {
-		s.logger.Error("Failed to generate audio segment: ", err)
+		s.logger.Errorf("Failed to generate audio segment: %v", err)
 		s.writeAPIError(w, http.StatusInternalServerError, "Failed to generate audio segment", err.Error())
 		return
 	}
@@ -158,7 +159,7 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		time.Sleep(10 * time.Second)
 		if err := os.Remove(segment); err != nil {
-			s.logger.Debug("Failed to cleanup temporary segment file: ", err)
+			s.logger.Debugf("Failed to cleanup temporary segment file: %v", err)
 		}
 	}()
 }
@@ -167,7 +168,7 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, startTime, endTime time.Time) (string, error) {
 	// Check cache first
 	if cachedPath, found := s.cache.GetCachedSegment(streamName, startTime, endTime); found {
-		s.logger.Debug("Serving cached segment for ", streamName)
+		s.logger.Debugf("Serving cached segment for %s", streamName)
 		return cachedPath, nil
 	}
 	
@@ -175,7 +176,7 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	// Load Europe/Amsterdam timezone to match Docker container timezone
 	loc, err := time.LoadLocation("Europe/Amsterdam")
 	if err != nil {
-		s.logger.Error("Failed to load timezone: ", err)
+		s.logger.Errorf("Failed to load timezone: %v", err)
 		loc = time.Local // fallback to server local time
 	}
 	
@@ -184,13 +185,13 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	endTimeLocal := endTime.In(loc)
 	
 	// Debug logging for timezone conversion
-	s.logger.Debug(fmt.Sprintf("Timezone conversion - Input: %s -> Local: %s", startTime.Format(time.RFC3339), startTimeLocal.Format(time.RFC3339)))
+	s.logger.Debugf("Timezone conversion - Input: %s -> Local: %s", startTime.Format(time.RFC3339), startTimeLocal.Format(time.RFC3339))
 	
 	// Find the hourly recording that contains the start time (in server timezone)
 	recordingHour := time.Date(startTimeLocal.Year(), startTimeLocal.Month(), startTimeLocal.Day(), startTimeLocal.Hour(), 0, 0, 0, loc)
 	timestamp := utils.FormatTimestamp(recordingHour)
 	
-	s.logger.Debug(fmt.Sprintf("Looking for recording: %s", timestamp))
+	s.logger.Debugf("Looking for recording: %s", timestamp)
 	
 	recordingPath := utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
 	
@@ -213,11 +214,11 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	// Cache the segment
 	cachedPath, err := s.cache.CacheSegment(streamName, startTime, endTime, tempFile)
 	if err != nil {
-		s.logger.Warn("Failed to cache segment: ", err)
+		s.logger.Warnf("Failed to cache segment: %v", err)
 		return tempFile, nil // Return temp file even if caching fails
 	}
 	
-	s.logger.Debug("Generated and cached new segment for ", streamName)
+	s.logger.Debugf("Generated and cached new segment for %s", streamName)
 	return cachedPath, nil
 }
 
