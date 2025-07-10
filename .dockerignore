@@ -1,0 +1,58 @@
+# Build artifacts
+bin/
+*.o
+*.a
+*.so
+
+# Test files
+*_test.go
+test/
+coverage.out
+
+# Development files
+.git/
+.gitignore
+.env
+.env.local
+*.log
+
+# Documentation
+README.md
+README-GO.md
+CLAUDE.md
+*.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Data directories (use volumes instead)
+data/
+logs/
+/var/audio/
+/var/log/
+
+# Docker files (not needed in image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+
+# Dependencies that will be downloaded
+vendor/
