@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -183,11 +182,6 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 
 // preflightChecks performs health checks and bitrate detection before recording
 func (r *Recorder) preflightChecks(ctx context.Context, streamName string, stream config.Stream) (int, error) {
-	// Check disk space (require at least 500MB free)
-	if !r.checkDiskSpace(r.config.RecordingDir, 500*1024*1024) {
-		return 0, fmt.Errorf("insufficient disk space")
-	}
-
 	// Detect stream bitrate from icecast headers
 	bitrate, err := r.detectStreamBitrate(stream.URL)
 	if err != nil {
@@ -198,18 +192,6 @@ func (r *Recorder) preflightChecks(ctx context.Context, streamName string, strea
 	}
 
 	return bitrate, nil
-}
-
-// checkDiskSpace checks if there's enough free disk space
-func (r *Recorder) checkDiskSpace(path string, requiredBytes int64) bool {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		r.logger.Error("failed to check disk space", "error", err)
-		return false
-	}
-
-	freeBytes := int64(stat.Bavail) * int64(stat.Bsize)
-	return freeBytes >= requiredBytes
 }
 
 // recordWithRetry attempts recording with exponential backoff retry
