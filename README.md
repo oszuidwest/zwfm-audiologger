@@ -4,19 +4,44 @@ A Go application for recording hourly audio streams and serving audio segments v
 
 ## Features
 
-- Continuous recording with hourly audio stream capture
-- HTTP API for serving audio segments by time range
-- Multi-stream support with per-stream configuration
-- Metadata collection from broadcast APIs
-- Segment caching for faster response times
-- Structured logging and graceful shutdown
+- Continuous recording with hourly audio stream capture using cron scheduling
+- HTTP API for serving audio segments by time range with intelligent caching
+- Multi-stream support with per-stream configuration and bitrate detection
+- Metadata collection from broadcast APIs with JSON parsing
+- Dynamic bitrate detection from icecast streams
+- Structured logging with slog and station context
+- Graceful shutdown and comprehensive error handling
 - Configurable retention periods for recordings and cache
+
+## Key Technical Features
+
+### Bitrate Detection
+- Automatic detection from icecast headers (`icy-br`, `ice-audio-info`)
+- Fallback to MP3 frame analysis for non-compliant streams
+- Used for accurate file size validation with 20% tolerance
+
+### Time Format
+- Universal YYYY-MM-DD-HH format used throughout application
+- Consistent timezone handling (Europe/Amsterdam)
+- API responses use YYYY-MM-DD HH:MM format for display
+
+### Logging
+- Structured logging with Go's standard slog
+- Station context for easy filtering
+- Outputs to both file and console
+- Debug mode shows FFmpeg output and detailed operations
+
+### Error Handling
+- Retry logic with exponential backoff (3 attempts)
+- FFmpeg reconnection settings for network issues
+- Graceful degradation when metadata APIs are unavailable
 
 ## Prerequisites
 
 ### System Requirements
 - **Go 1.24+** (for building from source)
 - **FFmpeg** (for audio recording and segment extraction)
+- **Network access** to icecast streams and metadata APIs
 
 ### Install Dependencies
 
@@ -60,7 +85,11 @@ nano streams.local.json
 ./audiologger
 ```
 
-This starts both the continuous recording service and HTTP API server.
+This starts both the continuous recording service and HTTP API server. The application runs as a unified service with:
+- Cron-based hourly recording at minute 0 of each hour
+- HTTP API server on the configured port (default 8080)
+- Automatic bitrate detection for optimal recording validation
+- Structured logging with station context for easy monitoring
 
 ## Configuration
 
@@ -100,7 +129,7 @@ The `streams.json` file contains global settings and per-stream configuration:
 | `recording_dir` | `/tmp/audiologger` | Base directory for recordings |
 | `log_file` | `{recording_dir}/audiologger.log` | Log file location |
 | `keep_days` | `7` | Default retention period (days) |
-| `debug` | `false` | Enable debug logging |
+| `debug` | `false` | Enable debug logging with FFmpeg output |
 
 ### Server Settings
 | Setting | Default | Description |
@@ -114,11 +143,11 @@ The `streams.json` file contains global settings and per-stream configuration:
 ### Stream Settings
 | Setting | Required | Description |
 |---------|----------|-------------|
-| `stream_url` | ✅ | Audio stream URL |
+| `stream_url` | ✅ | Icecast stream URL (bitrate auto-detected) |
 | `metadata_url` | ❌ | Metadata API endpoint |
-| `metadata_path` | ❌ | JSON path for metadata extraction |
-| `parse_metadata` | ❌ | Enable JSON metadata parsing |
-| `keep_days` | ❌ | Override global retention |
+| `metadata_path` | ❌ | gjson path for metadata extraction |
+| `parse_metadata` | ❌ | Enable JSON metadata parsing (true/false) |
+| `keep_days` | ❌ | Override global retention period |
 | `record_duration` | ❌ | Recording duration (default: 1h) |
 
 ## Directory Structure
@@ -136,22 +165,33 @@ The application creates this structure:
 
 ## Production Deployment
 
-### Systemd Service (Recording)
+### Systemd Service
 Create `/etc/systemd/system/audiologger.service`:
 ```ini
 [Unit]
-Description=ZuidWest FM Audio Logger
+Description=ZuidWest FM Audio Logger - Unified Recording & API Service
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=audiologger
 Group=audiologger
 WorkingDirectory=/opt/audiologger
-ExecStart=/usr/local/bin/audiologger
+ExecStart=/usr/local/bin/audiologger -config /etc/audiologger/streams.json
 Restart=always
 RestartSec=10
-Environment=CONFIG_FILE=/etc/audiologger/streams.json
+TimeoutStopSec=30
+
+# Environment
+Environment=TZ=Europe/Amsterdam
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/audio /var/log/audiologger.log
 
 [Install]
 WantedBy=multi-user.target
@@ -255,25 +295,36 @@ docker-compose down
 ## Monitoring and Debugging
 
 ### Enable Debug Mode
-Set `"debug": true` in `streams.json` for detailed logging including FFmpeg output.
+Set `"debug": true` in `streams.json` for detailed logging including:
+- FFmpeg command output and errors
+- Bitrate detection process details
+- Cache hit/miss information
+- Detailed HTTP request logging
 
 ### Log Monitoring
 ```bash
-# Follow logs
+# Follow logs in real-time
 tail -f /var/log/audiologger.log
 
-# Log format is structured text, not JSON
+# Log format is structured text with key=value pairs
 grep "ERROR" /var/log/audiologger.log
 grep "station=zuidwest" /var/log/audiologger.log
+grep "bitrate_kbps" /var/log/audiologger.log
 
-# Check cache performance
+# Monitor recording activities
+grep "recording started\|recording completed" /var/log/audiologger.log
+
+# Check cache and system performance
 curl http://localhost:8080/api/v1/system/cache | jq
+curl http://localhost:8080/api/v1/system/stats | jq
 ```
 
 ### Performance Metrics
+- **Bitrate detection**: 1-2 seconds on startup per stream
 - **Segment extraction**: 100-300ms (first request)
 - **Cached segments**: 50-200ms (subsequent requests)  
 - **Cache hit ratio**: 70-90% for popular segments
+- **Recording validation**: Based on detected bitrate with ±20% tolerance
 - **Storage overhead**: ~5-10% with intelligent cleanup
 
 ## Development
@@ -332,9 +383,4 @@ MIT License - see LICENSE file for details.
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/oszuidwest/zwfm-audiologger/issues)
-- **Documentation**: See [CLAUDE.md](./CLAUDE.md) for detailed development guide
 - **API Compatibility**: Works with [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp)
-
----
-
-Made by Streekomroep ZuidWest
