@@ -1,14 +1,14 @@
 services:
   audiologger:
-    build: .
+    image: ghcr.io/oszuidwest/zwfm-audiologger:latest
     container_name: audiologger
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/var/audio
+      - audiologger-data:/var/audio
       - ./streams.json:/app/streams.json:ro
-      - ./logs:/var/log
+      - audiologger-logs:/var/log
     environment:
       - CONFIG_FILE=/app/streams.json
       - TZ=Europe/Amsterdam

@@ -3,6 +3,7 @@
   "log_file": "/var/log/audiologger.log",
   "keep_days": 31,
   "debug": true,
+  "timezone": "Europe/Amsterdam",
   "server": {
     "port": 8080,
     "read_timeout": "30s",

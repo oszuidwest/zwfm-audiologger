@@ -5,29 +5,33 @@ import (
 	"time"
 )
 
-// Universal time format: YYYY-MM-DD-HH used everywhere
-// This ensures universal interpretation across the entire application
 const (
-	UniversalFormat = "2006-01-02-15"    // YYYY-MM-DD-HH (files, API, everything)
-	DisplayFormat   = "02-01-2006 15:04" // DD-MM-YYYY HH:MM (dashboard only)
+	// UniversalFormat defines the YYYY-MM-DD-HH pattern used consistently across:
+	// - Recording filenames (2024-01-15-14.mp3)
+	// - API endpoints (/recordings/2024-01-15-14)
+	// - Cache keys and internal timestamps
+	// This format ensures proper sorting and hour-boundary alignment
+	UniversalFormat = "2006-01-02-15"
+
+	// DisplayFormat provides human-readable timestamps for API responses
+	// Converts "2024-01-15-14" to "15-01-2024 14:00" for user interfaces
+	DisplayFormat = "02-01-2006 15:04"
 )
 
-// GetAppTimezone returns the application timezone (always Europe/Amsterdam)
-func GetAppTimezone() *time.Location {
-	loc, err := time.LoadLocation("Europe/Amsterdam")
+// GetAppTimezone returns the application's standard timezone
+// Falls back to UTC if timezone loading fails
+func GetAppTimezone(timezone string) *time.Location {
+	loc, err := time.LoadLocation(timezone)
 	if err != nil {
-		// Fallback to UTC if timezone loading fails
 		return time.UTC
 	}
 	return loc
 }
 
-// Now returns current time in application timezone
-func Now() time.Time {
-	return time.Now().In(GetAppTimezone())
+func NowInTimezone(timezone string) time.Time {
+	return time.Now().In(GetAppTimezone(timezone))
 }
 
-// FormatDuration formats a duration for FFmpeg (HH:MM:SS.mmm format)
 func FormatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
@@ -37,28 +41,70 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
 }
 
-// FormatTimestamp formats a time using universal format (YYYY-MM-DD-HH)
-func FormatTimestamp(t time.Time) string {
-	return t.In(GetAppTimezone()).Format(UniversalFormat)
+func FormatTimestamp(t time.Time, timezone string) string {
+	return t.In(GetAppTimezone(timezone)).Format(UniversalFormat)
 }
 
-// ParseTimestamp parses a universal timestamp (YYYY-MM-DD-HH)
-func ParseTimestamp(timestamp string) (time.Time, error) {
+func ParseTimestamp(timestamp string, timezone string) (time.Time, error) {
 	t, err := time.Parse(UniversalFormat, timestamp)
 	if err != nil {
 		return time.Time{}, err
 	}
-	// Ensure parsed time is in application timezone
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, GetAppTimezone()), nil
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, GetAppTimezone(timezone)), nil
 }
 
-// ToAPIString converts time to API response format (YYYY-MM-DD HH:MM)
-func ToAPIString(t time.Time) string {
-	return t.In(GetAppTimezone()).Format("2006-01-02 15:04")
+func ToAPIString(t time.Time, timezone string) string {
+	return t.In(GetAppTimezone(timezone)).Format("2006-01-02 15:04")
 }
 
-// GetCurrentHour returns the current hour timestamp (YYYY-MM-DD-HH)
-func GetCurrentHour() string {
-	now := Now()
-	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone()))
+// GetCurrentHour returns the current hour in UniversalFormat (YYYY-MM-DD-HH)
+// Truncates to hour boundary (sets minutes/seconds to 0) for consistent recording naming
+// Example: if current time is 14:37:23, returns "2024-01-15-14"
+// ParseTimestampAsTimezone parses a timestamp and treats it as the configured timezone
+// Accepts various formats but always interprets them as the specified timezone:
+// - "2025-07-12T14:30:00" (ISO format without timezone)
+// - "2025-07-12T14:30:00Z" (UTC suffix ignored)
+// - "2025-07-12T14:30:00+02:00" (timezone suffix ignored)
+// This implements the "one timezone for everything" principle
+func ParseTimestampAsTimezone(timestampStr, timezone string) (time.Time, error) {
+	// Try common timestamp formats, but always interpret as configured timezone
+	formats := []string{
+		"2006-01-02T15:04:05",           // Basic ISO format
+		"2006-01-02T15:04:05Z",          // ISO with Z (ignore timezone)
+		"2006-01-02T15:04:05-07:00",     // ISO with timezone offset (ignore)
+		"2006-01-02T15:04:05.000Z",      // ISO with milliseconds and Z
+		"2006-01-02T15:04:05.000-07:00", // ISO with milliseconds and offset
+		"2006-01-02 15:04:05",           // Simple datetime format
+	}
+
+	var parsedTime time.Time
+	var err error
+
+	// Try each format until one works
+	for _, format := range formats {
+		parsedTime, err = time.Parse(format, timestampStr)
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return time.Time{}, fmt.Errorf("unable to parse timestamp '%s': %w", timestampStr, err)
+	}
+
+	// Always interpret the parsed time as the configured timezone
+	// This ignores any timezone information in the input string
+	loc := GetAppTimezone(timezone)
+	localTime := time.Date(
+		parsedTime.Year(), parsedTime.Month(), parsedTime.Day(),
+		parsedTime.Hour(), parsedTime.Minute(), parsedTime.Second(),
+		parsedTime.Nanosecond(), loc,
+	)
+
+	return localTime, nil
+}
+
+func GetCurrentHour(timezone string) string {
+	now := NowInTimezone(timezone)
+	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone(timezone)), timezone)
 }

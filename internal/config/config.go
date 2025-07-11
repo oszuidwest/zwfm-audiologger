@@ -8,17 +8,16 @@ import (
 	"time"
 )
 
-// Config represents the entire application configuration
 type Config struct {
 	RecordingDir string            `json:"recording_dir"`
 	LogFile      string            `json:"log_file"`
 	KeepDays     int               `json:"keep_days"`
 	Debug        bool              `json:"debug"`
+	Timezone     string            `json:"timezone"`
 	Streams      map[string]Stream `json:"streams"`
 	Server       ServerConfig      `json:"server"`
 }
 
-// Stream represents a single stream configuration
 type Stream struct {
 	URL              string   `json:"stream_url"`
 	MetadataURL      string   `json:"metadata_url,omitempty"`
@@ -28,10 +27,13 @@ type Stream struct {
 	RecordDuration   Duration `json:"record_duration,omitempty"`
 }
 
-// Duration wraps time.Duration to provide custom JSON unmarshaling
+// Duration wraps time.Duration to provide flexible JSON unmarshaling
+// Accepts both string formats ("1h", "30m") and numeric nanosecond values
 type Duration time.Duration
 
-// UnmarshalJSON implements json.Unmarshaler for Duration
+// UnmarshalJSON implements custom JSON parsing for duration values
+// Supports: "1h", "30m", "45s" (string format) or raw nanoseconds (numeric)
+// This allows configuration flexibility: "record_duration": "1h" or "record_duration": 3600000000000
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
 	if err := json.Unmarshal(b, &v); err != nil {
@@ -40,8 +42,10 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 	switch value := v.(type) {
 	case float64:
+		// Handle raw nanosecond values from JSON numbers
 		*d = Duration(time.Duration(value))
 	case string:
+		// Parse human-readable duration strings ("1h", "30m", etc.)
 		duration, err := time.ParseDuration(value)
 		if err != nil {
 			return err
@@ -54,7 +58,6 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ServerConfig represents HTTP server configuration
 type ServerConfig struct {
 	Port            int      `json:"port"`
 	ReadTimeout     Duration `json:"read_timeout"`
@@ -64,7 +67,6 @@ type ServerConfig struct {
 	CacheTTL        Duration `json:"cache_ttl"`
 }
 
-// Load loads configuration from a JSON file
 func Load(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -79,9 +81,7 @@ func Load(filename string) (*Config, error) {
 	return config.validate()
 }
 
-// validate validates and sets defaults for the configuration
 func (c *Config) validate() (*Config, error) {
-	// Set defaults
 	if c.RecordingDir == "" {
 		c.RecordingDir = filepath.Join(os.TempDir(), "audiologger")
 	}
@@ -90,6 +90,9 @@ func (c *Config) validate() (*Config, error) {
 	}
 	if c.KeepDays == 0 {
 		c.KeepDays = 7
+	}
+	if c.Timezone == "" {
+		c.Timezone = "Europe/Amsterdam"
 	}
 	if c.Server.Port == 0 {
 		c.Server.Port = 8080
@@ -110,7 +113,6 @@ func (c *Config) validate() (*Config, error) {
 		c.Server.CacheTTL = Duration(24 * time.Hour)
 	}
 
-	// Validate streams
 	for name, stream := range c.Streams {
 		if stream.URL == "" {
 			return nil, fmt.Errorf("stream_url is required for stream %s", name)
@@ -127,10 +129,13 @@ func (c *Config) validate() (*Config, error) {
 	return c, nil
 }
 
-// GetStreamKeepDays returns the keep_days setting for a stream
 func (c *Config) GetStreamKeepDays(streamName string) int {
 	if stream, exists := c.Streams[streamName]; exists && stream.KeepDays > 0 {
 		return stream.KeepDays
 	}
 	return c.KeepDays
+}
+
+func (c *Config) GetTimezone() (*time.Location, error) {
+	return time.LoadLocation(c.Timezone)
 }
