@@ -43,7 +43,7 @@ sudo yum install ffmpeg golang
 git clone https://github.com/oszuidwest/zwfm-audiologger
 cd zwfm-audiologger
 go mod download
-go build -o audiologger cmd/audiologger/main.go
+go build -o audiologger .
 ```
 
 ### Configure Streams
@@ -229,7 +229,7 @@ FROM golang:1.24-alpine AS builder
 RUN apk add --no-cache git
 WORKDIR /app
 COPY . .
-RUN go build -o audiologger cmd/audiologger/main.go
+RUN go build -o audiologger .
 
 FROM alpine:latest
 RUN apk add --no-cache ffmpeg ca-certificates tzdata jq
@@ -281,13 +281,13 @@ curl http://localhost:8080/api/v1/system/cache | jq
 ### Build Commands
 ```bash
 # Build binary
-go build -o audiologger cmd/audiologger/main.go
+go build -o audiologger .
 
 # Run directly from source
-go run cmd/audiologger/main.go
+go run .
 
 # Test recording with short duration
-go run cmd/audiologger/main.go -test-record
+go run . -test-record
 
 # Run tests
 go test ./...
@@ -299,7 +299,7 @@ go mod download && go mod tidy
 ### Custom Configuration
 ```bash
 # Use custom config file
-go run cmd/audiologger/main.go -config custom-streams.json
+go run . -config custom-streams.json
 ```
 
 ### Code Quality

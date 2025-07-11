@@ -22,7 +22,7 @@ ARG BUILD_TIME=unknown
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_TIME}" \
-    -o audiologger cmd/audiologger/main.go
+    -o audiologger .
 
 # Runtime stage
 FROM alpine:latest
