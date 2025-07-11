@@ -58,7 +58,7 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 	// Schedule recording to run every hour at minute 0
 	_, err := r.cron.AddFunc("0 * * * *", func() {
 		if err := r.RecordAll(ctx); err != nil {
-			r.logger.Errorf("Scheduled recording failed: %v", err)
+			r.logger.Error("scheduled recording failed", "error", err)
 		}
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func (r *Recorder) RecordAll(ctx context.Context) error {
 			defer wg.Done()
 
 			if err := r.recordStream(ctx, name, s, timestamp); err != nil {
-				r.logger.WithStation(name).Errorf("Recording failed: %v", err)
+				r.logger.Error("recording failed", "station", name, "error", err)
 			}
 		}(streamName, stream)
 	}
@@ -103,7 +103,6 @@ func (r *Recorder) RecordAll(ctx context.Context) error {
 
 // recordStream records a single stream with resilience and retry logic
 func (r *Recorder) recordStream(ctx context.Context, streamName string, stream config.Stream, timestamp string) error {
-
 	// Initialize recording stats
 	r.initStats(streamName)
 
@@ -137,13 +136,13 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 	if utils.FileExists(outputFile) {
 		// Check if existing file is complete and valid
 		if r.validateRecording(outputFile, time.Duration(stream.RecordDuration), bitrate) {
-			r.logger.WithStation(streamName).Infof("Valid recording already exists for this hour: %s", timestamp)
+			r.logger.Info("recording already exists", "station", streamName, "timestamp", timestamp)
 			return nil
 		}
-		r.logger.WithStation(streamName).Warnf("Incomplete recording exists, will retry: %s", timestamp)
+		r.logger.Warn("incomplete recording exists, will retry", "station", streamName, "timestamp", timestamp)
 		// Remove incomplete file
 		if err := os.Remove(outputFile); err != nil {
-			r.logger.WithStation(streamName).Warnf("Failed to remove incomplete file %s: %v", outputFile, err)
+			r.logger.Error("failed to remove incomplete file", "station", streamName, "file", outputFile, "error", err)
 		}
 	}
 
@@ -151,12 +150,14 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 	go r.metadata.Fetch(streamName, stream, streamDir, timestamp)
 
 	// Start recording with retry logic
-	r.logger.WithStation(streamName).Infof("Starting recording: %s", timestamp)
+	r.logger.Info("recording started", "station", streamName, "timestamp", timestamp, "bitrate_kbps", bitrate, "duration", time.Duration(stream.RecordDuration).String())
 
 	if err := r.recordWithRetry(ctx, stream.URL, outputFile, time.Duration(stream.RecordDuration), streamName); err != nil {
 		r.updateStats(streamName, func(s *RecordingStats) {
 			s.LastError = err
 		})
+		attempts := r.getStatsAttempts(streamName)
+		r.logger.Error("recording failed", "station", streamName, "timestamp", timestamp, "attempts", attempts, "error", err)
 		return fmt.Errorf("recording failed after retries: %w", err)
 	}
 
@@ -169,7 +170,14 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 		return err
 	}
 
-	r.logger.WithStation(streamName).Infof("Recording completed and validated: %s", timestamp)
+	// Get file size for logging
+	fileInfo, _ := os.Stat(outputFile)
+	var fileSize int64
+	if fileInfo != nil {
+		fileSize = fileInfo.Size()
+	}
+
+	r.logger.Info("recording completed", "station", streamName, "timestamp", timestamp, "file_size", fileSize, "duration", time.Duration(stream.RecordDuration).String())
 	return nil
 }
 
@@ -183,10 +191,10 @@ func (r *Recorder) preflightChecks(ctx context.Context, streamName string, strea
 	// Detect stream bitrate from icecast headers
 	bitrate, err := r.detectStreamBitrate(stream.URL)
 	if err != nil {
-		r.logger.WithStation(streamName).Warnf("Failed to detect bitrate, using default 128kbps: %v", err)
+		r.logger.Warn("bitrate detection failed, using default", "station", streamName, "default_kbps", 128, "error", err)
 		bitrate = 128 // Default fallback
 	} else {
-		r.logger.WithStation(streamName).Infof("Detected stream bitrate: %d kbps", bitrate)
+		r.logger.Info("bitrate detected", "station", streamName, "method", "icecast-headers", "bitrate_kbps", bitrate)
 	}
 
 	return bitrate, nil
@@ -196,7 +204,7 @@ func (r *Recorder) preflightChecks(ctx context.Context, streamName string, strea
 func (r *Recorder) checkDiskSpace(path string, requiredBytes int64) bool {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
-		r.logger.Errorf("Failed to check disk space: %v", err)
+		r.logger.Error("failed to check disk space", "error", err)
 		return false
 	}
 
@@ -214,7 +222,7 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 			s.Attempts = attempt
 		})
 
-		r.logger.WithStation(streamName).Infof("Starting recording attempt %d", attempt)
+		r.logger.Info("recording attempt", "station", streamName, "attempt", attempt, "max_attempts", maxRetries)
 
 		// Calculate adaptive timeout based on attempt
 		timeoutMultiplier := time.Duration(attempt)
@@ -224,11 +232,11 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 		cancel()
 
 		if err == nil {
-			r.logger.WithStation(streamName).Info("Recording completed successfully")
+			r.logger.Info("recording attempt successful", "station", streamName, "attempt", attempt)
 			return nil
 		}
 
-		r.logger.WithStation(streamName).Warnf("Recording attempt %d failed: %v", attempt, err)
+		r.logger.Warn("recording attempt failed", "station", streamName, "attempt", attempt, "error", err)
 		r.updateStats(streamName, func(s *RecordingStats) {
 			s.LastError = err
 		})
@@ -236,7 +244,7 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 		// If not the last attempt, wait before retrying
 		if attempt < maxRetries {
 			retryDelay := baseDelay * time.Duration(attempt)
-			r.logger.WithStation(streamName).Infof("Waiting %v before retry", retryDelay)
+			r.logger.Info("waiting before retry", "station", streamName, "delay", retryDelay)
 			select {
 			case <-time.After(retryDelay):
 			case <-ctx.Done():
@@ -313,7 +321,7 @@ func (r *Recorder) detectStreamBitrate(streamURL string) (int, error) {
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			r.logger.Warnf("Failed to close response body: %v", err)
+			r.logger.Warn("failed to close response body", "error", err)
 		}
 	}()
 
@@ -354,7 +362,6 @@ func (r *Recorder) detectStreamBitrate(streamURL string) (int, error) {
 	return 0, fmt.Errorf("unable to detect bitrate from headers or content")
 }
 
-
 // detectMP3Bitrate analyzes MP3 data to detect bitrate
 func (r *Recorder) detectMP3Bitrate(data []byte) (int, error) {
 	// MP3 bitrate lookup table (MPEG-1 Layer III)
@@ -390,19 +397,19 @@ func (r *Recorder) validateRecording(filePath string, expectedDuration time.Dura
 	maxExpectedSize := int64(float64(expectedSizeBytes) * 1.2) // 20% tolerance
 
 	if stat.Size() < minExpectedSize {
-		r.logger.Warnf("Recording file %s smaller than expected: %d bytes (expected %d, min %d) at %d kbps",
-			filepath.Base(filePath), stat.Size(), expectedSizeBytes, minExpectedSize, bitrate)
+		r.logger.Warn("recording file smaller than expected",
+			"file", filepath.Base(filePath), "actual_bytes", stat.Size(), "expected_bytes", expectedSizeBytes, "min_bytes", minExpectedSize, "bitrate_kbps", bitrate)
 		return false
 	}
 
 	if stat.Size() > maxExpectedSize {
-		r.logger.Warnf("Recording file %s larger than expected: %d bytes (expected %d, max %d) at %d kbps",
-			filepath.Base(filePath), stat.Size(), expectedSizeBytes, maxExpectedSize, bitrate)
+		r.logger.Warn("recording file larger than expected",
+			"file", filepath.Base(filePath), "actual_bytes", stat.Size(), "expected_bytes", expectedSizeBytes, "max_bytes", maxExpectedSize, "bitrate_kbps", bitrate)
 		// Don't fail for oversized files, just log warning
 	}
 
-	r.logger.Debugf("Recording validation passed for %s: %d bytes (expected %d) at %d kbps",
-		filepath.Base(filePath), stat.Size(), expectedSizeBytes, bitrate)
+	r.logger.Debug("recording validation passed",
+		"file", filepath.Base(filePath), "actual_bytes", stat.Size(), "expected_bytes", expectedSizeBytes, "bitrate_kbps", bitrate)
 
 	return true
 }
@@ -436,9 +443,6 @@ func (r *Recorder) GetStats() map[string]RecordingStats {
 	return result
 }
 
-// Note: Removed process-based duplicate checking in favor of file-based checking
-// This is simpler and more reliable than parsing process lists
-
 // cleanupOldFiles removes old recording files based on retention policy
 func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 	keepDays := r.config.GetStreamKeepDays(streamName)
@@ -456,9 +460,9 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 
 		if info.ModTime().Before(cutoff) {
 			if err := os.Remove(path); err != nil {
-				r.logger.WithStation(streamName).Warnf("Failed to remove old file %s: %v", path, err)
+				r.logger.Warn("failed to remove old file", "station", streamName, "file", path, "error", err)
 			} else {
-				r.logger.WithStation(streamName).Debugf("Removed old file: %s", path)
+				r.logger.Debug("removed old file", "station", streamName, "file", path)
 			}
 		}
 
@@ -466,8 +470,18 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 	})
 
 	if err != nil {
-		r.logger.WithStation(streamName).Errorf("Cleanup failed: %v", err)
+		r.logger.Error("cleanup failed", "station", streamName, "error", err)
 	} else {
-		r.logger.WithStation(streamName).Info("Cleanup completed")
+		r.logger.Info("cleanup completed", "station", streamName)
 	}
+}
+
+// getStatsAttempts returns the number of attempts for a stream
+func (r *Recorder) getStatsAttempts(streamName string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if stats, exists := r.stats[streamName]; exists {
+		return stats.Attempts
+	}
+	return 0
 }

@@ -119,7 +119,7 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) 
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		s.logger.Errorf("Failed to encode JSON response: %v", err)
+		s.logger.Error("failed to encode JSON response", "error", err)
 	}
 }
 
@@ -409,7 +409,7 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 
 	rawRecordings, err := s.getRecordings(streamName)
 	if err != nil {
-		s.logger.Errorf("Failed to list recordings: %v", err)
+		s.logger.Error("failed to list recordings", "error", err)
 		s.writeAPIError(w, http.StatusInternalServerError, "Failed to list recordings", err.Error())
 		return
 	}

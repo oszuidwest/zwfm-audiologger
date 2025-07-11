@@ -1,14 +1,15 @@
 package logger
 
 import (
-	"fmt"
+	"context"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 )
 
-// Logger wraps slog for simple, clean logging
+// Logger provides simple, consistent logging for the audio logger system
 type Logger struct {
 	slog *slog.Logger
 	file *os.File
@@ -56,93 +57,43 @@ func (l *Logger) Close() error {
 	return nil
 }
 
-// Debug logs a debug message
-func (l *Logger) Debug(msg string) {
-	l.slog.Debug(msg)
+// Simple logging methods with structured data
+func (l *Logger) Info(msg string, args ...any) {
+	l.slog.Info(msg, args...)
 }
 
-// Info logs an info message
-func (l *Logger) Info(msg string) {
-	l.slog.Info(msg)
+func (l *Logger) Warn(msg string, args ...any) {
+	l.slog.Warn(msg, args...)
 }
 
-// Warn logs a warning message
-func (l *Logger) Warn(msg string) {
-	l.slog.Warn(msg)
+func (l *Logger) Error(msg string, args ...any) {
+	l.slog.Error(msg, args...)
 }
 
-// Error logs an error message
-func (l *Logger) Error(msg string) {
-	l.slog.Error(msg)
+func (l *Logger) Debug(msg string, args ...any) {
+	l.slog.Debug(msg, args...)
 }
 
-// Fatal logs a fatal error and exits
-func (l *Logger) Fatal(msg string) {
-	l.slog.Error(msg)
+func (l *Logger) Fatal(msg string, args ...any) {
+	l.slog.Error(msg, args...)
 	os.Exit(1)
 }
 
-// StationLogger provides station-specific logging
-type StationLogger struct {
-	slog *slog.Logger
-}
-
-// WithStation creates a logger with station context
-func (l *Logger) WithStation(station string) *StationLogger {
-	return &StationLogger{
-		slog: l.slog.With("station", station),
+// HTTP request logging
+func (l *Logger) HTTPRequest(method, path string, statusCode int, duration time.Duration, requestID string) {
+	level := slog.LevelInfo
+	if statusCode >= 400 {
+		level = slog.LevelWarn
 	}
-}
+	if statusCode >= 500 {
+		level = slog.LevelError
+	}
 
-// Debug logs a debug message with station context
-func (s *StationLogger) Debug(msg string) {
-	s.slog.Debug(msg)
-}
-
-// Info logs an info message with station context
-func (s *StationLogger) Info(msg string) {
-	s.slog.Info(msg)
-}
-
-// Warn logs a warning message with station context
-func (s *StationLogger) Warn(msg string) {
-	s.slog.Warn(msg)
-}
-
-// Error logs an error message with station context
-func (s *StationLogger) Error(msg string) {
-	s.slog.Error(msg)
-}
-
-// Convenience methods for formatted logging
-func (l *Logger) Infof(format string, args ...interface{}) {
-	l.slog.Info(fmt.Sprintf(format, args...))
-}
-
-func (l *Logger) Warnf(format string, args ...interface{}) {
-	l.slog.Warn(fmt.Sprintf(format, args...))
-}
-
-func (l *Logger) Errorf(format string, args ...interface{}) {
-	l.slog.Error(fmt.Sprintf(format, args...))
-}
-
-func (l *Logger) Debugf(format string, args ...interface{}) {
-	l.slog.Debug(fmt.Sprintf(format, args...))
-}
-
-func (s *StationLogger) Infof(format string, args ...interface{}) {
-	s.slog.Info(fmt.Sprintf(format, args...))
-}
-
-func (s *StationLogger) Warnf(format string, args ...interface{}) {
-	s.slog.Warn(fmt.Sprintf(format, args...))
-}
-
-func (s *StationLogger) Errorf(format string, args ...interface{}) {
-	s.slog.Error(fmt.Sprintf(format, args...))
-}
-
-func (s *StationLogger) Debugf(format string, args ...interface{}) {
-	s.slog.Debug(fmt.Sprintf(format, args...))
+	l.slog.Log(context.Background(), level, "http request",
+		"method", method,
+		"path", path,
+		"status", statusCode,
+		"duration_ms", duration.Milliseconds(),
+		"request_id", requestID,
+	)
 }

@@ -34,27 +34,26 @@ func New(log *logger.Logger) *Fetcher {
 // Fetch fetches metadata for a stream and saves it to a .meta file
 func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, timestamp string) {
 	if stream.MetadataURL == "" {
-		f.logger.WithStation(streamName).Debug("No metadata URL configured")
+		f.logger.Debug("no metadata URL configured", "station", streamName)
 		return
 	}
 
-	f.logger.WithStation(streamName).Debug(fmt.Sprintf("Fetching metadata from: %s", stream.MetadataURL))
-	f.logger.WithStation(streamName).Debug(fmt.Sprintf("Parse metadata: %t, JSON path: %s", stream.ParseMetadata, stream.MetadataJSONPath))
+	f.logger.Debug("fetching metadata", "station", streamName, "url", stream.MetadataURL, "parse", stream.ParseMetadata, "path", stream.MetadataJSONPath)
 
 	programName := f.fetchProgramName(stream)
 	if programName == "" {
-		f.logger.WithStation(streamName).Warn("No program name found, using fallback")
+		f.logger.Warn("no program name found, using fallback", "station", streamName)
 		programName = "Unknown Program"
 	}
 
 	// Write metadata to file
 	metaFile := filepath.Join(streamDir, timestamp+".meta")
 	if err := os.WriteFile(metaFile, []byte(programName), 0644); err != nil {
-		f.logger.WithStation(streamName).Errorf("Failed to write metadata file: %v", err)
+		f.logger.Error("failed to write metadata file", "station", streamName, "file", metaFile, "error", err)
 		return
 	}
 
-	f.logger.WithStation(streamName).Infof("Stored metadata - %s - %s", timestamp, programName)
+	f.logger.Info("stored metadata", "station", streamName, "timestamp", timestamp, "program", programName)
 }
 
 // fetchProgramName fetches the program name from the metadata URL
@@ -64,29 +63,29 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", stream.MetadataURL, nil)
 	if err != nil {
-		f.logger.Errorf("Failed to create metadata request: %v", err)
+		f.logger.Error("failed to create metadata request", "error", err)
 		return ""
 	}
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		f.logger.Errorf("Failed to fetch metadata: %v", err)
+		f.logger.Error("failed to fetch metadata", "error", err)
 		return ""
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			f.logger.Errorf("Failed to close response body: %v", err)
+			f.logger.Error("failed to close response body", "error", err)
 		}
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		f.logger.Errorf("Metadata request failed with status: %d", resp.StatusCode)
+		f.logger.Error("metadata request failed", "status_code", resp.StatusCode)
 		return ""
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		f.logger.Errorf("Failed to read metadata response: %v", err)
+		f.logger.Error("failed to read metadata response", "error", err)
 		return ""
 	}
 
@@ -104,7 +103,7 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
 			return result.String()
 		} else {
-			f.logger.Errorf("JSON path '%s' not found in response", jsonPath)
+			f.logger.Error("JSON path not found in response", "path", jsonPath)
 		}
 	}
 
