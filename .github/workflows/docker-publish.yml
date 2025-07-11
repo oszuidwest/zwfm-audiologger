@@ -1,0 +1,127 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., "v1.2.3", "latest", or "edge")'
+        required: true
+        default: 'latest'
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set version from tag or latest
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION=${{ github.ref_name }}
+          elif [ "${{ github.event_name }}" = "workflow_call" ]; then
+            VERSION="${{ inputs.version }}"
+            # Checkout the tag if it's a version tag
+            if [[ "$VERSION" =~ ^v[0-9] ]]; then
+              git checkout "$VERSION"
+            fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.version }}" = "latest" ]; then
+              # Get the most recent tag
+              VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+              if [ -z "$VERSION" ]; then
+                echo "No tags found"
+                exit 1
+              fi
+              echo "GITHUB_REF=refs/tags/$VERSION" >> $GITHUB_ENV
+            elif [ "${{ inputs.version }}" = "edge" ]; then
+              VERSION="edge"
+            else
+              VERSION="${{ inputs.version }}"
+            fi
+          fi
+          
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Set up Docker tags
+        id: docker_tags
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          
+          # Remove 'v' prefix if present for Docker compatibility
+          DOCKER_TAG=${VERSION#v}
+          
+          # Always include the specific version tag
+          TAGS="${IMAGE}:${DOCKER_TAG}"
+          
+          # Add semantic version tags if applicable
+          if [[ $DOCKER_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Extract major and minor versions
+            MAJOR=$(echo $DOCKER_TAG | cut -d. -f1)
+            MINOR=$(echo $DOCKER_TAG | cut -d. -f1-2)
+            
+            TAGS="${TAGS},${IMAGE}:${MINOR}"
+            TAGS="${TAGS},${IMAGE}:${MAJOR}"
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+          
+          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+          echo "Docker tags: $TAGS"
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker_tags.outputs.TAGS }}
+          labels: |
+            org.opencontainers.image.title=${{ github.repository }}
+            org.opencontainers.image.description=ZuidWest FM Audio Logger
+            org.opencontainers.image.vendor=Streekomroep ZuidWest
+            org.opencontainers.image.version=${{ steps.version.outputs.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: false

@@ -1,127 +1,143 @@
-# Audiologger ZuidWest FM
-This repository contains a bash script designed to record audio streams hourly and log relevant metadata about the current broadcast. It also ensures the periodic cleanup of old recordings.
+# ZuidWest FM Audio Logger
+
+Automated hourly radio stream recording with commercial removal.
 
 ## Features
-- **Continuous Recording**: Automatically captures audio streams every hour.
-- **Metadata Logging**: Fetches and logs the current program name from broadcast data APIs, adding context to each recording.
-- **Detailed Log File**: Maintains a comprehensive log file for tracking the script's activities and any potential errors.
-- **Automatic Cleanup**: Deletes audio files based on configurable retention periods.
-- **Debug Mode**: Provides additional output for troubleshooting when enabled.
-- **Multi-Stream Support**: Can record multiple streams simultaneously with different configurations.
 
-## Prerequisites
-The script requires the following tools:
-- `jq` - A command-line JSON processor.
-- `curl` - A command-line tool for transferring data with URLs.
-- `ffmpeg` - A command-line tool for recording, converting, and streaming audio and video.
+- Hourly recordings with format auto-detection (MP3, AAC, OGG, OPUS, FLAC)
+- Commercial removal via API markers
+- Multi-station support
+- Metadata fetching
+- Web interface for browsing/downloading
+- Automatic cleanup
 
-This script is intended for use with websites based on the [Streekomroep WordPress Theme](https://github.com/oszuidwest/streekomroep-wp), which utilizes the Broadcast Data API from the theme. If you are using a different API, set `parse_metadata` to 0 and use a plaintext file for metadata.
+## Requirements
+
+- Go 1.25.0+
+- FFmpeg & ffprobe
 
 ## Installation
-1. **Clone this repository:**
-   ```bash
-   git clone https://github.com/oszuidwest/zwfm-audiologger
-   cd zwfm-audiologger
-   ```
-2. **Ensure the script is executable:**
-   ```
-   chmod +x audiologger.sh
-   ```
 
-## Configuration
-Configuration is done through `streams.json`. The file has two main sections: `global` and `streams`.
-
-### Global Settings
-```json
-{
-  "global": {
-    "rec_dir": "/var/audio",      // Where to store recordings
-    "log_file": "/var/log/audiologger.log",  // Log file location
-    "keep_days": 31,              // Default retention period
-    "debug": 1                    // Enable console logging
-  }
-}
+```bash
+git clone https://github.com/oszuidwest/zwfm-audiologger.git
+cd zwfm-audiologger
+go build -o audiologger .
 ```
 
-All global settings can be customized.
+## Configuration
 
-### Stream Settings
-Each stream in the `streams` section can have these settings:
+Create `config.json`:
 
 ```json
 {
-  "streams": {
-    "stream_name": {                    // Name used for subdirectory
-      "stream_url": "https://...",      // Stream URL
-      "metadata_url": "https://...",    // Metadata URL
-      "metadata_path": ".some.path",    // JSON path for metadata (if parsing)
-      "parse_metadata": 1,              // Parse JSON (1) or use raw response (0)
-      "keep_days": 31                   // Override global keep_days
+  "recordings_dir": "/var/audio",
+  "port": 8080,
+  "keep_days": 31,
+  "timezone": "Europe/Amsterdam",
+  "stations": {
+    "station1": {
+      "stream_url": "https://stream.example.com/station1.mp3",
+      "api_secret": "your-secret-key",
+      "metadata_url": "https://api.example.com/nowplaying",
+      "metadata_path": "data.current.title",
+      "parse_metadata": true
     }
   }
 }
 ```
 
-#### Customizable per stream:
-- `stream_url`: The URL of the audio stream
-- `metadata_url`: Where to fetch program information
-- `metadata_path`: JSON path for metadata extraction (only if parse_metadata: 1)
-- `parse_metadata`: Whether to parse JSON response (1) or use raw response (0)
-- `keep_days`: How long to keep recordings
+### Configuration Options
 
-#### Fixed settings (do not override):
-- Recording time is fixed at 1 hour (3600 seconds)
-- Network settings:
-  - `reconnect_delay_max`: 300 seconds
-  - `rw_timeout`: 10000000
-  - Error codes: 404, 500, 503
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `recordings_dir` | string | `/var/audio` | Directory for storing recordings |
+| `port` | int | `8080` | HTTP server port |
+| `keep_days` | int | `31` | Number of days to retain recordings |
+| `timezone` | string | `UTC` | Timezone for scheduling |
+| `stations` | object | required | Map of station configurations |
 
-### Directory Structure
-The script creates:
-```
-/var/audio/
-  ├── stream_name1/
-  │   ├── 2024-12-19_14.mp3
-  │   └── 2024-12-19_14.meta
-  └── stream_name2/
-      ├── 2024-12-19_14.mp3
-      └── 2024-12-19_14.meta
-```
+### Station Configuration
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `stream_url` | string | Yes | URL of the audio stream |
+| `api_secret` | string | No | Secret key for API authentication |
+| `metadata_url` | string | No | URL to fetch metadata from |
+| `metadata_path` | string | No | JSON path to extract metadata (dot notation) |
+| `parse_metadata` | bool | No | Parse response as JSON (default: false) |
 
 ## Usage
-Schedule the script to run every hour using cron:
-1. Open your crontab:
-   ```bash
-   crontab -e
-   ```
-2. Add the following line to run the script at the start of every hour:
-   ```bash
-   0 * * * * /path/to/your/zwfm-audiologger/audiologger.sh
-   ```
 
-## Debugging
-To enable debug mode, set `debug: 1` in the global section of streams.json. This will output debug information to the console to help identify any issues during execution.
+```bash
+./audiologger                              # Run with config.json
+./audiologger -config /path/to/config.json # Custom config
+./audiologger -test                        # Test mode (10s recordings)
+./audiologger -version                     # Show version
+```
 
-## Contributing
-Contributions are welcome. Please fork the repository, make your changes, and submit a pull request.
+## API Endpoints
 
-# MIT License
-Copyright (c) 2024 Streekomroep ZuidWest
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/health` | No | Health check |
+| GET | `/status` | No | System status |
+| GET | `/recordings/{path...}` | No | Browse/download recordings |
+| POST | `/program/start/{station}` | Yes | Mark program start |
+| POST | `/program/stop/{station}` | Yes | Mark program end |
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### Authentication
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+```bash
+# X-API-Key header (recommended)
+curl -X POST -H "X-API-Key: your-secret" http://localhost:8080/program/start/station1
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+# Bearer token
+curl -X POST -H "Authorization: Bearer your-secret" http://localhost:8080/program/start/station1
+```
+
+## How It Works
+
+1. Records hourly at minute 0 to temporary `.mkv` files
+2. Detects audio format with `ffprobe`
+3. Remuxes to proper container (`.mp3`, `.aac`, `.ogg`, `.opus`, `.flac`)
+4. If markers exist, trims commercials and backs up original as `.original.{ext}`
+5. Daily cleanup removes old recordings
+
+## File Structure
+
+```
+/var/audio/
+├── station1/
+│   ├── 2024-01-15-14.mp3              # Recording
+│   ├── 2024-01-15-14.original.mp3     # Backup (if processed)
+│   ├── 2024-01-15-14.recording.json   # Markers
+│   └── 2024-01-15-14.meta             # Metadata
+```
+
+## Docker
+
+```yaml
+version: '3.8'
+services:
+  audiologger:
+    build: .
+    volumes:
+      - ./recordings:/var/audio
+      - ./config.json:/config.json:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+```
+
+## Development
+
+```bash
+go test ./...                                       # Run tests
+go fmt ./...                                        # Format code
+go vet ./...                                        # Static analysis
+GOTOOLCHAIN=go1.25.1 deadcode ./...                # Check dead code
+```
+
+## License
+
+MIT

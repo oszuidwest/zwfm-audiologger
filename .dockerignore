@@ -1,0 +1,37 @@
+# Binaries
+audiologger
+bin/
+*.exe
+
+# Development files
+.git/
+.github/
+.gitignore
+.dockerignore
+*.md
+!README.md
+
+# Test files
+*_test.go
+test*/
+benchmark/
+
+# Data directories
+data/
+logs/
+/var/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files
+Dockerfile*
+docker-compose*

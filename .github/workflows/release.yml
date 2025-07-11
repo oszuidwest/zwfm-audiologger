@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        default: 'edge'
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Determine version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Download dependencies
+      run: go mod download
+    
+    - name: Run tests
+      run: go test -v ./...
+    
+    - name: Run go vet
+      run: go vet ./...
+    
+    - name: Check formatting
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "The following files are not formatted:"
+          gofmt -s -l .
+          exit 1
+        fi
+    
+    - name: Build binaries
+      run: |
+        mkdir -p dist
+        
+        # Build for multiple platforms
+        platforms=(
+          "linux/amd64"
+          "linux/arm64"
+          "linux/arm/7"
+          "windows/amd64"
+          "windows/arm64"
+          "darwin/amd64"
+          "darwin/arm64"
+        )
+        
+        for platform in "${platforms[@]}"; do
+          IFS='/' read -r -a array <<< "$platform"
+          GOOS=${array[0]}
+          GOARCH=${array[1]}
+          GOARM=${array[2]}
+          
+          output_name="audiologger-${{ steps.version.outputs.version }}-${GOOS}-${GOARCH}"
+          if [ "$GOOS" = "windows" ]; then
+            output_name="${output_name}.exe"
+          fi
+          
+          echo "Building $output_name"
+          
+          env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build \
+            -ldflags="-s -w -X github.com/oszuidwest/zwfm-audiologger/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/oszuidwest/zwfm-audiologger/internal/version.Commit=${{ github.sha }} -X github.com/oszuidwest/zwfm-audiologger/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o dist/$output_name \
+            .
+        done
+    
+    - name: Create git tag (manual release)
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != 'edge'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag ${{ steps.version.outputs.version }}
+        git push origin ${{ steps.version.outputs.version }}
+    
+    - name: Create GitHub Release
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != 'edge')
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        files: dist/*
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload edge artifacts
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.version == 'edge'
+      uses: actions/upload-artifact@v4
+      with:
+        name: audiologger-edge
+        path: dist/*
+        retention-days: 7
