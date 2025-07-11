@@ -1,0 +1,44 @@
+run:
+  timeout: 5m
+  go: '1.24'
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - ineffassign
+    - misspell
+    - revive
+    - staticcheck
+    - typecheck
+    - unused
+    - errcheck
+    - gosimple
+    - gocritic
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - unnamedResult
+      - hugeParam
+
+issues:
+  exclude-use-default: false
+  exclude:
+    # Exclude some linters from running on tests files
+    - "should have a package comment"
+    - "don't use an underscore in package name"
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosimple
