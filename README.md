@@ -1,18 +1,18 @@
 # ZuidWest FM Audio Logger
 
-A production-ready Go application for recording hourly audio streams and serving audio segments via HTTP API. Features intelligent caching, structured logging, and robust error handling.
+A Go application for recording hourly audio streams and serving audio segments via HTTP API.
 
-## ✨ Features
+## Features
 
-- **Continuous Recording**: Automatic hourly audio stream capture with built-in cron scheduling
-- **HTTP API**: Serve audio segments by time range with intelligent caching
-- **Multi-Stream Support**: Record multiple streams simultaneously with per-stream configuration
-- **Metadata Collection**: Fetch and store program information from broadcast APIs
-- **Smart Caching**: Cache frequently requested segments for instant response
-- **Production Ready**: Structured logging, graceful shutdown, CORS support, comprehensive error handling
-- **Auto Cleanup**: Configurable retention periods for recordings and cache
+- Continuous recording with hourly audio stream capture
+- HTTP API for serving audio segments by time range
+- Multi-stream support with per-stream configuration
+- Metadata collection from broadcast APIs
+- Segment caching for faster response times
+- Structured logging and graceful shutdown
+- Configurable retention periods for recordings and cache
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### System Requirements
 - **Go 1.24+** (for building from source)
@@ -36,9 +36,9 @@ sudo apt install ffmpeg golang-go
 sudo yum install ffmpeg golang
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Clone and Build
+### Clone and Build
 ```bash
 git clone https://github.com/oszuidwest/zwfm-audiologger
 cd zwfm-audiologger
@@ -46,23 +46,23 @@ go mod download
 go build -o audiologger cmd/audiologger/main.go
 ```
 
-### 2. Configure Streams
+### Configure Streams
 Copy and edit the configuration file:
 ```bash
 cp streams.json streams.local.json
 nano streams.local.json
 ```
 
-### 3. Run Application
+### Run Application
 
 **Start everything (recorder + HTTP server):**
 ```bash
 ./audiologger
 ```
 
-That's it! One command starts both the continuous recording service and HTTP API server.
+This starts both the continuous recording service and HTTP API server.
 
-## ⚙️ Configuration
+## Configuration
 
 ### Configuration File Structure
 The `streams.json` file contains global settings and per-stream configuration:
@@ -121,7 +121,7 @@ The `streams.json` file contains global settings and per-stream configuration:
 | `keep_days` | ❌ | Override global retention |
 | `record_duration` | ❌ | Recording duration (default: 1h) |
 
-## 🗂️ Directory Structure
+## Directory Structure
 
 The application creates this structure:
 ```
@@ -134,7 +134,7 @@ The application creates this structure:
 └── audiologger.log          # Application logs
 ```
 
-## 🔧 Production Deployment
+## Production Deployment
 
 ### Systemd Service (Recording)
 Create `/etc/systemd/system/audiologger.service`:
@@ -164,7 +164,7 @@ sudo systemctl start audiologger
 sudo systemctl status audiologger
 ```
 
-## 📡 HTTP API
+## HTTP API
 
 ### API Endpoints
 
@@ -221,7 +221,7 @@ curl http://localhost:8080/api/v1/system/cache | jq
 ```
 
 
-## 🐳 Docker Deployment
+## Docker Deployment
 
 ### Dockerfile
 ```dockerfile
@@ -252,7 +252,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-## 🔍 Monitoring and Debugging
+## Monitoring and Debugging
 
 ### Enable Debug Mode
 Set `"debug": true` in `streams.json` for detailed logging including FFmpeg output.
@@ -276,7 +276,7 @@ curl http://localhost:8080/api/v1/system/cache | jq
 - **Cache hit ratio**: 70-90% for popular segments
 - **Storage overhead**: ~5-10% with intelligent cleanup
 
-## 🛠️ Development
+## Development
 
 ### Build Commands
 ```bash
@@ -314,7 +314,7 @@ go fmt ./...
 go test -cover ./...
 ```
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -325,11 +325,11 @@ go test -cover ./...
 7. Push to the branch (`git push origin feature/amazing-feature`)
 8. Open a Pull Request
 
-## 📄 License
+## License
 
 MIT License - see LICENSE file for details.
 
-## 🆘 Support
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/oszuidwest/zwfm-audiologger/issues)
 - **Documentation**: See [CLAUDE.md](./CLAUDE.md) for detailed development guide
@@ -337,4 +337,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-**Made with ❤️ by Streekomroep ZuidWest**
+Made by Streekomroep ZuidWest
