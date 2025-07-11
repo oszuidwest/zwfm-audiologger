@@ -85,7 +85,7 @@ jobs:
           env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build \
             -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o dist/$output_name \
-            cmd/audiologger/main.go
+            ./cmd/audiologger
         done
     
     - name: Create GitHub Release
