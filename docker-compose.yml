@@ -1,0 +1,20 @@
+services:
+  audiologger:
+    build: .
+    container_name: audiologger
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/var/audio
+      - ./streams.json:/app/streams.json:ro
+      - ./logs:/var/log
+    environment:
+      - CONFIG_FILE=/app/streams.json
+      - TZ=Europe/Amsterdam
+
+volumes:
+  audiologger-data:
+    driver: local
+  audiologger-logs:
+    driver: local
