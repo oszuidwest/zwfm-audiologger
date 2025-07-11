@@ -43,7 +43,7 @@ sudo yum install ffmpeg golang
 git clone https://github.com/oszuidwest/zwfm-audiologger
 cd zwfm-audiologger
 go mod download
-go build -o bin/audiologger cmd/audiologger/main.go
+go build -o audiologger cmd/audiologger/main.go
 ```
 
 ### 2. Configure Streams
@@ -57,7 +57,7 @@ nano streams.local.json
 
 **Start everything (recorder + HTTP server):**
 ```bash
-./bin/audiologger
+./audiologger
 ```
 
 That's it! One command starts both the continuous recording service and HTTP API server.
@@ -83,9 +83,10 @@ The `streams.json` file contains global settings and per-stream configuration:
   },
   "streams": {
     "zuidwest": {
-      "url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
+      "stream_url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
       "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",
-      "metadata_json_path": "fm.now",
+      "metadata_path": "fm.now",
+      "parse_metadata": true,
       "keep_days": 31,
       "record_duration": "1h"
     }
@@ -113,9 +114,10 @@ The `streams.json` file contains global settings and per-stream configuration:
 ### Stream Settings
 | Setting | Required | Description |
 |---------|----------|-------------|
-| `url` | ✅ | Audio stream URL |
+| `stream_url` | ✅ | Audio stream URL |
 | `metadata_url` | ❌ | Metadata API endpoint |
-| `metadata_json_path` | ❌ | JSON path for metadata extraction |
+| `metadata_path` | ❌ | JSON path for metadata extraction |
+| `parse_metadata` | ❌ | Enable JSON metadata parsing |
 | `keep_days` | ❌ | Override global retention |
 | `record_duration` | ❌ | Recording duration (default: 1h) |
 
@@ -125,8 +127,8 @@ The application creates this structure:
 ```
 /var/audio/
 ├── zuidwest/
-│   ├── 2024-01-15_14.mp3    # Audio recording
-│   └── 2024-01-15_14.meta   # Program metadata
+│   ├── 2024-01-15-14.mp3    # Audio recording
+│   └── 2024-01-15-14.meta   # Program metadata
 ├── cache/                    # Cached segments
 │   └── {hash}.mp3
 └── audiologger.log          # Application logs
@@ -202,13 +204,13 @@ curl http://localhost:8080/api/v1/streams/zuidwest | jq
 curl http://localhost:8080/api/v1/streams/zuidwest/recordings | jq
 
 # Get recording information
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15_14 | jq
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14 | jq
 
 # Download recording
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15_14/download -o recording.mp3
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/download -o recording.mp3
 
 # Get metadata
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15_14/metadata | jq
+curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/metadata | jq
 
 # Get 5-minute audio segment
 curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-01-15T14:30:00Z&end=2024-01-15T14:35:00Z" -o segment.mp3
@@ -227,12 +229,12 @@ FROM golang:1.24-alpine AS builder
 RUN apk add --no-cache git
 WORKDIR /app
 COPY . .
-RUN go build -o bin/audiologger cmd/audiologger/main.go
+RUN go build -o audiologger cmd/audiologger/main.go
 
 FROM alpine:latest
 RUN apk add --no-cache ffmpeg ca-certificates tzdata jq
 WORKDIR /app
-COPY --from=builder /app/bin/audiologger .
+COPY --from=builder /app/audiologger .
 COPY streams.json .
 EXPOSE 8080
 CMD ["./audiologger"]
@@ -260,11 +262,12 @@ Set `"debug": true` in `streams.json` for detailed logging including FFmpeg outp
 # Follow logs
 tail -f /var/log/audiologger.log
 
-# JSON log parsing
-jq '.level,.msg,.station' /var/log/audiologger.log
+# Log format is structured text, not JSON
+grep "ERROR" /var/log/audiologger.log
+grep "station=zuidwest" /var/log/audiologger.log
 
 # Check cache performance
-curl http://localhost:8080/cache/stats | jq
+curl http://localhost:8080/api/v1/system/cache | jq
 ```
 
 ### Performance Metrics
@@ -278,10 +281,13 @@ curl http://localhost:8080/cache/stats | jq
 ### Build Commands
 ```bash
 # Build binary
-go build -o bin/audiologger cmd/audiologger/main.go
+go build -o audiologger cmd/audiologger/main.go
 
 # Run directly from source
 go run cmd/audiologger/main.go
+
+# Test recording with short duration
+go run cmd/audiologger/main.go -test-record
 
 # Run tests
 go test ./...
