@@ -29,7 +29,12 @@ func main() {
 
 	// Initialize logger
 	log := logger.New(cfg.LogFile, cfg.Debug)
-	defer log.Close()
+	defer func() {
+		if err := log.Close(); err != nil {
+			// Can't use logger here since we're closing it
+			panic(err)
+		}
+	}()
 
 	log.Info("Starting ZuidWest FM Audio Logger")
 
