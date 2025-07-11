@@ -56,7 +56,7 @@ type StreamInfo struct {
 	Name        string `json:"name"`
 	URL         string `json:"url"`
 	Status      string `json:"status"`
-	LastSeen    string `json:"last_seen,omitempty"`    // YYYY-MM-DD HH:MM format (API)
+	LastSeen    string `json:"last_seen,omitempty"` // YYYY-MM-DD HH:MM format (API)
 	Recordings  int    `json:"recordings_count"`
 	TotalSize   int64  `json:"total_size_bytes"`
 	KeepDays    int    `json:"keep_days"`
@@ -69,9 +69,9 @@ type StreamsResponse struct {
 
 // Recording responses
 type Recording struct {
-	Timestamp   string        `json:"timestamp"`           // YYYY-MM-DD-HH format (universal)
-	StartTime   string        `json:"start_time"`          // YYYY-MM-DD HH:MM format (API)
-	EndTime     string        `json:"end_time"`            // YYYY-MM-DD HH:MM format (API)
+	Timestamp   string        `json:"timestamp"`  // YYYY-MM-DD-HH format (universal)
+	StartTime   string        `json:"start_time"` // YYYY-MM-DD HH:MM format (API)
+	EndTime     string        `json:"end_time"`   // YYYY-MM-DD HH:MM format (API)
 	Duration    string        `json:"duration"`
 	Size        int64         `json:"size_bytes"`
 	SizeHuman   string        `json:"size_human"`
@@ -93,18 +93,18 @@ type RecordingsResponse struct {
 // Metadata responses
 type MetadataResponse struct {
 	Stream    string `json:"stream"`
-	Timestamp string `json:"timestamp"`     // YYYY-MM-DD-HH format (universal)
+	Timestamp string `json:"timestamp"` // YYYY-MM-DD-HH format (universal)
 	Metadata  string `json:"metadata"`
-	FetchedAt string `json:"fetched_at"`    // YYYY-MM-DD HH:MM format (API)
+	FetchedAt string `json:"fetched_at"` // YYYY-MM-DD HH:MM format (API)
 }
 
 // System responses
 type SystemStats struct {
-	Uptime          string                    `json:"uptime"`
-	TotalRecordings int                       `json:"total_recordings"`
-	TotalSize       int64                     `json:"total_size_bytes"`
-	StreamStats     map[string]StreamStat     `json:"stream_stats"`
-	CacheStats      interface{}               `json:"cache_stats"`
+	Uptime          string                `json:"uptime"`
+	TotalRecordings int                   `json:"total_recordings"`
+	TotalSize       int64                 `json:"total_size_bytes"`
+	StreamStats     map[string]StreamStat `json:"stream_stats"`
+	CacheStats      interface{}           `json:"cache_stats"`
 }
 
 type StreamStat struct {
@@ -117,7 +117,7 @@ type StreamStat struct {
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		s.logger.Errorf("Failed to encode JSON response: %v", err)
 	}
@@ -134,18 +134,18 @@ func (s *Server) writeAPIResponse(w http.ResponseWriter, status int, data interf
 			Count:     count,
 		},
 	}
-	
+
 	if status >= 400 {
 		response.Error = &APIError{
 			Code:    status,
 			Message: http.StatusText(status),
 		}
 	}
-	
+
 	s.writeJSON(w, status, response)
 }
 
-// writeAPIError writes a structured API error response  
+// writeAPIError writes a structured API error response
 func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, details string) {
 	response := APIResponse{
 		Success: false,
@@ -159,10 +159,9 @@ func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, detai
 			Version:   "1.0.0",
 		},
 	}
-	
+
 	s.writeJSON(w, status, response)
 }
-
 
 var startTime = time.Now()
 
@@ -188,7 +187,7 @@ func (s *Server) calculateStreamStats(streamName string) (totalSize int64, lastS
 // healthHandler returns basic health information
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
-	
+
 	s.writeJSON(w, http.StatusOK, HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now(),
@@ -203,13 +202,13 @@ func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 		{Name: "cache", Status: "ok"},
 		{Name: "storage", Status: "ok"},
 	}
-	
+
 	// Check if recording directory is accessible
 	if _, err := os.Stat(s.config.RecordingDir); os.IsNotExist(err) {
 		checks[1].Status = "error"
 		checks[1].Message = "Recording directory not accessible"
 	}
-	
+
 	allReady := true
 	for _, check := range checks {
 		if check.Status != "ok" {
@@ -217,12 +216,12 @@ func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	
+
 	status := http.StatusOK
 	if !allReady {
 		status = http.StatusServiceUnavailable
 	}
-	
+
 	s.writeAPIResponse(w, status, ReadinessResponse{
 		Ready:  allReady,
 		Checks: checks,
@@ -233,16 +232,16 @@ func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
-	
+
 	stream, exists := s.config.Streams[streamName]
 	if !exists {
 		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
 		return
 	}
-	
+
 	// Get stream statistics
 	totalSize, lastSeen, recordingCount, _ := s.calculateStreamStats(streamName)
-	
+
 	streamInfo := StreamInfo{
 		Name:        streamName,
 		URL:         stream.URL,
@@ -253,7 +252,7 @@ func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
 		KeepDays:    s.config.GetStreamKeepDays(streamName),
 		HasMetadata: stream.MetadataURL != "",
 	}
-	
+
 	s.writeAPIResponse(w, http.StatusOK, streamInfo, 1)
 }
 
@@ -262,25 +261,25 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
 	timestamp := vars["timestamp"]
-	
+
 	if _, exists := s.config.Streams[streamName]; !exists {
 		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
 		return
 	}
-	
+
 	recordingPath := utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
-	
+
 	if !utils.FileExists(recordingPath) {
 		s.writeAPIError(w, http.StatusNotFound, "Recording not found", fmt.Sprintf("Recording '%s' does not exist", timestamp))
 		return
 	}
-	
+
 	stat, err := os.Stat(recordingPath)
 	if err != nil {
 		s.writeAPIError(w, http.StatusInternalServerError, "Failed to get recording info", err.Error())
 		return
 	}
-	
+
 	// Parse timestamp to get start/end times
 	startTime, err := utils.ParseTimestamp(timestamp)
 	if err != nil {
@@ -288,13 +287,13 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	endTime := startTime.Add(time.Hour)
-	
+
 	// Check if metadata exists
 	metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, timestamp)
 	hasMetadata := utils.FileExists(metadataPath)
-	
+
 	baseURL := fmt.Sprintf("/api/v1/streams/%s/recordings/%s", streamName, timestamp)
-	
+
 	recording := Recording{
 		Timestamp:   timestamp,
 		StartTime:   utils.ToAPIString(startTime),
@@ -314,7 +313,7 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 			}(),
 		},
 	}
-	
+
 	s.writeAPIResponse(w, http.StatusOK, recording, 1)
 }
 
@@ -323,46 +322,46 @@ func (s *Server) downloadRecordingHandler(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
 	timestamp := vars["timestamp"]
-	
+
 	if _, exists := s.config.Streams[streamName]; !exists {
 		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
 		return
 	}
-	
+
 	recordingPath := utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
-	
+
 	if !utils.FileExists(recordingPath) {
 		s.writeAPIError(w, http.StatusNotFound, "Recording not found", fmt.Sprintf("Recording '%s' does not exist", timestamp))
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "audio/mpeg")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s.mp3\"", streamName, timestamp))
-	
+
 	http.ServeFile(w, r, recordingPath)
 }
 
 // systemStatsHandler returns comprehensive system statistics
 func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
-	
+
 	streamStats := make(map[string]StreamStat)
 	totalRecordings := 0
 	totalSize := int64(0)
-	
+
 	for streamName := range s.config.Streams {
 		streamSize, lastActive, recordingCount, _ := s.calculateStreamStats(streamName)
-		
+
 		streamStats[streamName] = StreamStat{
 			Recordings: recordingCount,
 			SizeBytes:  streamSize,
 			LastActive: lastActive,
 		}
-		
+
 		totalRecordings += recordingCount
 		totalSize += streamSize
 	}
-	
+
 	stats := SystemStats{
 		Uptime:          uptime,
 		TotalRecordings: totalRecordings,
@@ -370,17 +369,17 @@ func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 		StreamStats:     streamStats,
 		CacheStats:      s.cache.GetCacheStats(),
 	}
-	
+
 	s.writeAPIResponse(w, http.StatusOK, stats, 1)
 }
 
 // streamsHandler returns detailed information about all streams
 func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
 	streams := make([]StreamInfo, 0, len(s.config.Streams))
-	
+
 	for streamName, stream := range s.config.Streams {
 		totalSize, lastSeen, recordingCount, _ := s.calculateStreamStats(streamName)
-		
+
 		streamInfo := StreamInfo{
 			Name:        streamName,
 			URL:         stream.URL,
@@ -391,10 +390,10 @@ func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
 			KeepDays:    s.config.GetStreamKeepDays(streamName),
 			HasMetadata: stream.MetadataURL != "",
 		}
-		
+
 		streams = append(streams, streamInfo)
 	}
-	
+
 	s.writeAPIResponse(w, http.StatusOK, StreamsResponse{Streams: streams}, len(streams))
 }
 
@@ -402,31 +401,31 @@ func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
-	
+
 	if _, exists := s.config.Streams[streamName]; !exists {
 		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
 		return
 	}
-	
+
 	rawRecordings, err := s.getRecordings(streamName)
 	if err != nil {
 		s.logger.Errorf("Failed to list recordings: %v", err)
 		s.writeAPIError(w, http.StatusInternalServerError, "Failed to list recordings", err.Error())
 		return
 	}
-	
+
 	// Convert to enhanced recordings
 	recordings := make([]Recording, len(rawRecordings))
 	for i, raw := range rawRecordings {
 		startTime, _ := utils.ParseTimestamp(raw.Timestamp)
 		endTime := startTime.Add(time.Hour)
-		
+
 		// Check if metadata exists
 		metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, raw.Timestamp)
 		hasMetadata := utils.FileExists(metadataPath)
-		
+
 		baseURL := fmt.Sprintf("/api/v1/streams/%s/recordings/%s", streamName, raw.Timestamp)
-		
+
 		recordings[i] = Recording{
 			Timestamp:   raw.Timestamp,
 			StartTime:   utils.ToAPIString(startTime),
@@ -447,12 +446,12 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 	}
-	
+
 	response := RecordingsResponse{
 		Recordings: recordings,
 		Stream:     streamName,
 	}
-	
+
 	s.writeAPIResponse(w, http.StatusOK, response, len(recordings))
 }
 
@@ -461,25 +460,25 @@ func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
 	timestamp := vars["timestamp"]
-	
+
 	if _, exists := s.config.Streams[streamName]; !exists {
 		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
 		return
 	}
-	
+
 	metadata, err := s.metadata.GetMetadata(utils.StreamDir(s.config.RecordingDir, streamName), timestamp)
 	if err != nil {
 		s.writeAPIError(w, http.StatusNotFound, "Metadata not found", err.Error())
 		return
 	}
-	
+
 	response := MetadataResponse{
 		Stream:    streamName,
 		Timestamp: timestamp,
 		Metadata:  metadata,
 		FetchedAt: utils.ToAPIString(utils.Now()),
 	}
-	
+
 	s.writeAPIResponse(w, http.StatusOK, response, 1)
 }
 

@@ -50,50 +50,50 @@ func (c *Cache) generateCacheKey(streamName string, startTime, endTime time.Time
 // GetCachedSegment retrieves a cached segment if it exists and is still valid
 func (c *Cache) GetCachedSegment(streamName string, startTime, endTime time.Time) (string, bool) {
 	key := c.generateCacheKey(streamName, startTime, endTime)
-	
+
 	entry, exists := c.entries[key]
 	if !exists {
 		return "", false
 	}
-	
+
 	// Check if entry is still valid (TTL)
 	if time.Since(entry.CreatedAt) > c.ttl {
 		c.removeEntry(key)
 		return "", false
 	}
-	
+
 	// Check if file still exists
 	if _, err := os.Stat(entry.FilePath); os.IsNotExist(err) {
 		c.removeEntry(key)
 		return "", false
 	}
-	
+
 	// Update access time
 	entry.AccessedAt = time.Now()
-	
+
 	return entry.FilePath, true
 }
 
 // CacheSegment caches a segment file
 func (c *Cache) CacheSegment(streamName string, startTime, endTime time.Time, tempFile string) (string, error) {
 	key := c.generateCacheKey(streamName, startTime, endTime)
-	
+
 	// Create cached filename (base64 encoded)
 	cachedFilename := key + ".mp3"
 	cachedPath := filepath.Join(c.dir, cachedFilename)
-	
+
 	// Move temp file to cache
 	if err := os.Rename(tempFile, cachedPath); err != nil {
 		return "", fmt.Errorf("failed to cache segment: %w", err)
 	}
-	
+
 	// Add to cache entries
 	c.entries[key] = &CacheEntry{
 		FilePath:   cachedPath,
 		CreatedAt:  time.Now(),
 		AccessedAt: time.Now(),
 	}
-	
+
 	return cachedPath, nil
 }
 
@@ -101,13 +101,13 @@ func (c *Cache) CacheSegment(streamName string, startTime, endTime time.Time, te
 func (c *Cache) Cleanup() {
 	// Use clear() builtin function from Go 1.21+ for efficient map clearing
 	toRemove := make([]string, 0, len(c.entries))
-	
+
 	for key, entry := range c.entries {
 		if time.Since(entry.CreatedAt) > c.ttl {
 			toRemove = append(toRemove, key)
 		}
 	}
-	
+
 	for _, key := range toRemove {
 		c.removeEntry(key)
 	}
@@ -125,7 +125,7 @@ func (c *Cache) removeEntry(key string) {
 func (c *Cache) GetCacheStats() map[string]interface{} {
 	var totalSize int64
 	validEntries := 0
-	
+
 	for _, entry := range c.entries {
 		if time.Since(entry.CreatedAt) <= c.ttl {
 			if stat, err := os.Stat(entry.FilePath); err == nil {
@@ -134,12 +134,12 @@ func (c *Cache) GetCacheStats() map[string]interface{} {
 			}
 		}
 	}
-	
+
 	return map[string]interface{}{
-		"total_entries": len(c.entries),
-		"valid_entries": validEntries,
+		"total_entries":    len(c.entries),
+		"valid_entries":    validEntries,
 		"total_size_bytes": totalSize,
-		"cache_dir": c.dir,
-		"ttl_hours": c.ttl.Hours(),
+		"cache_dir":        c.dir,
+		"ttl_hours":        c.ttl.Hours(),
 	}
 }

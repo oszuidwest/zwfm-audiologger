@@ -10,21 +10,21 @@ import (
 
 // Config represents the entire application configuration
 type Config struct {
-	RecordingDir string           `json:"recording_dir"`
-	LogFile      string           `json:"log_file"`
-	KeepDays     int              `json:"keep_days"`
-	Debug        bool             `json:"debug"`
+	RecordingDir string            `json:"recording_dir"`
+	LogFile      string            `json:"log_file"`
+	KeepDays     int               `json:"keep_days"`
+	Debug        bool              `json:"debug"`
 	Streams      map[string]Stream `json:"streams"`
-	Server       ServerConfig     `json:"server"`
+	Server       ServerConfig      `json:"server"`
 }
 
 // Stream represents a single stream configuration
 type Stream struct {
-	URL              string        `json:"stream_url"`
-	MetadataURL      string        `json:"metadata_url,omitempty"`
-	MetadataJSONPath string        `json:"metadata_path,omitempty"`
-	ParseMetadata    bool          `json:"parse_metadata,omitempty"`
-	KeepDays         int           `json:"keep_days,omitempty"`
+	URL              string   `json:"stream_url"`
+	MetadataURL      string   `json:"metadata_url,omitempty"`
+	MetadataJSONPath string   `json:"metadata_path,omitempty"`
+	ParseMetadata    bool     `json:"parse_metadata,omitempty"`
+	KeepDays         int      `json:"keep_days,omitempty"`
 	RecordDuration   Duration `json:"record_duration,omitempty"`
 }
 
@@ -37,7 +37,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
-	
+
 	switch value := v.(type) {
 	case float64:
 		*d = Duration(time.Duration(value))
@@ -50,7 +50,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	default:
 		return fmt.Errorf("invalid duration format")
 	}
-	
+
 	return nil
 }
 

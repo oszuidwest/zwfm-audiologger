@@ -34,7 +34,7 @@ func New(log *logger.Logger) *Fetcher {
 // Fetch fetches metadata for a stream and saves it to a .meta file
 func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, timestamp string) {
 	log := f.logger.WithStation(streamName)
-	
+
 	if stream.MetadataURL == "" {
 		log.Debug("No metadata URL configured")
 		return
@@ -93,14 +93,14 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 	}
 
 	bodyStr := string(body)
-	
+
 	// Parse JSON if parse_metadata is enabled and path is provided
 	if stream.ParseMetadata && stream.MetadataJSONPath != "" {
 		// Clean the JSON path (remove leading dot if present)
 		jsonPath := strings.TrimPrefix(stream.MetadataJSONPath, ".")
-		
+
 		f.logger.Debug(fmt.Sprintf("Parsing metadata with path '%s' from JSON: %s", jsonPath, bodyStr))
-		
+
 		result := gjson.Get(bodyStr, jsonPath)
 		if result.Exists() {
 			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
@@ -117,11 +117,11 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 // GetMetadata retrieves metadata for a specific recording
 func (f *Fetcher) GetMetadata(streamDir, timestamp string) (string, error) {
 	metaFile := filepath.Join(streamDir, timestamp+".meta")
-	
+
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read metadata file: %w", err)
 	}
-	
+
 	return strings.TrimSpace(string(data)), nil
 }

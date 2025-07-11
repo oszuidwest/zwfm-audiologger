@@ -8,7 +8,7 @@ import (
 // Universal time format: YYYY-MM-DD-HH used everywhere
 // This ensures universal interpretation across the entire application
 const (
-	UniversalFormat = "2006-01-02-15" // YYYY-MM-DD-HH (files, API, everything)
+	UniversalFormat = "2006-01-02-15"    // YYYY-MM-DD-HH (files, API, everything)
 	DisplayFormat   = "02-01-2006 15:04" // DD-MM-YYYY HH:MM (dashboard only)
 )
 
@@ -62,4 +62,3 @@ func GetCurrentHour() string {
 	now := Now()
 	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone()))
 }
-

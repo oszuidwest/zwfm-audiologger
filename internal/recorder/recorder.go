@@ -22,12 +22,12 @@ import (
 
 // RecordingStats tracks recording health and performance
 type RecordingStats struct {
-	StartTime      time.Time
-	Attempts       int
-	LastError      error
-	BytesRecorded  int64
-	ExpectedBytes  int64
-	Reconnections  int
+	StartTime       time.Time
+	Attempts        int
+	LastError       error
+	BytesRecorded   int64
+	ExpectedBytes   int64
+	Reconnections   int
 	DetectedBitrate int // kbps detected from stream
 }
 
@@ -64,10 +64,10 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to add cron job: %w", err)
 	}
-	
+
 	r.cron.Start()
 	r.logger.Info("Cron scheduler started - recordings will run every hour")
-	
+
 	// Wait for context cancellation
 	<-ctx.Done()
 	r.cron.Stop()
@@ -78,25 +78,25 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 // RecordAll records all configured streams
 func (r *Recorder) RecordAll(ctx context.Context) error {
 	timestamp := utils.GetCurrentHour()
-	
+
 	// Ensure recording directory exists
 	if err := utils.EnsureDir(r.config.RecordingDir); err != nil {
 		return fmt.Errorf("failed to create recording directory: %w", err)
 	}
 
 	var wg sync.WaitGroup
-	
+
 	for streamName, stream := range r.config.Streams {
 		wg.Add(1)
 		go func(name string, s config.Stream) {
 			defer wg.Done()
-			
+
 			if err := r.recordStream(ctx, name, s, timestamp); err != nil {
 				r.logger.WithStation(name).Errorf("Recording failed: %v", err)
 			}
 		}(streamName, stream)
 	}
-	
+
 	wg.Wait()
 	return nil
 }
@@ -104,10 +104,10 @@ func (r *Recorder) RecordAll(ctx context.Context) error {
 // recordStream records a single stream with resilience and retry logic
 func (r *Recorder) recordStream(ctx context.Context, streamName string, stream config.Stream, timestamp string) error {
 	log := r.logger.WithStation(streamName)
-	
+
 	// Initialize recording stats
 	r.initStats(streamName)
-	
+
 	// Pre-flight checks and bitrate detection
 	bitrate, err := r.preflightChecks(ctx, streamName, stream)
 	if err != nil {
@@ -116,7 +116,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 		})
 		return fmt.Errorf("preflight checks failed: %w", err)
 	}
-	
+
 	// Store detected bitrate
 	r.updateStats(streamName, func(s *RecordingStats) {
 		s.DetectedBitrate = bitrate
@@ -151,7 +151,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 
 	// Start recording with retry logic
 	log.Infof("Starting recording: %s", timestamp)
-	
+
 	if err := r.recordWithRetry(ctx, stream.URL, outputFile, time.Duration(stream.RecordDuration), streamName); err != nil {
 		r.updateStats(streamName, func(s *RecordingStats) {
 			s.LastError = err
@@ -255,23 +255,23 @@ func (r *Recorder) startFFmpegWithContext(ctx context.Context, streamURL, output
 		"reconnect":               "1",
 		"reconnect_at_eof":        "1",
 		"reconnect_streamed":      "1",
-		"reconnect_delay_max":     "60", // Reduced from 300 to fail faster
+		"reconnect_delay_max":     "60",                  // Reduced from 300 to fail faster
 		"reconnect_on_http_error": "404,500,502,503,504", // Added more error codes
-		"rw_timeout":              "30000000", // Increased to 30 seconds
-		"timeout":                 "60000000", // 60 second general timeout
+		"rw_timeout":              "30000000",            // Increased to 30 seconds
+		"timeout":                 "60000000",            // 60 second general timeout
 		"t":                       fmt.Sprintf("%.0f", duration.Seconds()),
-		"threads":                 "0", // Use optimal thread count
+		"threads":                 "0",  // Use optimal thread count
 		"bufsize":                 "2M", // Increased buffer size
 	})
 
 	// Output with enhanced settings
 	cmd := stream.Output(outputFile, ffmpeg.KwArgs{
-		"c":           "copy",
-		"f":           "mp3",
-		"y":           "",
+		"c":                 "copy",
+		"f":                 "mp3",
+		"y":                 "",
 		"avoid_negative_ts": "make_zero",
-		"copyts":      "",
-		"start_at_zero": "",
+		"copyts":            "",
+		"start_at_zero":     "",
 	}).OverWriteOutput()
 
 	// Create a channel to handle FFmpeg completion
@@ -392,18 +392,18 @@ func (r *Recorder) validateRecording(filePath string, expectedDuration time.Dura
 	maxExpectedSize := int64(float64(expectedSizeBytes) * 1.2) // 20% tolerance
 
 	if stat.Size() < minExpectedSize {
-		r.logger.Warnf("Recording file %s smaller than expected: %d bytes (expected %d, min %d) at %d kbps", 
+		r.logger.Warnf("Recording file %s smaller than expected: %d bytes (expected %d, min %d) at %d kbps",
 			filepath.Base(filePath), stat.Size(), expectedSizeBytes, minExpectedSize, bitrate)
 		return false
 	}
 
 	if stat.Size() > maxExpectedSize {
-		r.logger.Warnf("Recording file %s larger than expected: %d bytes (expected %d, max %d) at %d kbps", 
+		r.logger.Warnf("Recording file %s larger than expected: %d bytes (expected %d, max %d) at %d kbps",
 			filepath.Base(filePath), stat.Size(), expectedSizeBytes, maxExpectedSize, bitrate)
 		// Don't fail for oversized files, just log warning
 	}
 
-	r.logger.Debugf("Recording validation passed for %s: %d bytes (expected %d) at %d kbps", 
+	r.logger.Debugf("Recording validation passed for %s: %d bytes (expected %d) at %d kbps",
 		filepath.Base(filePath), stat.Size(), expectedSizeBytes, bitrate)
 
 	return true
@@ -445,18 +445,18 @@ func (r *Recorder) GetStats() map[string]RecordingStats {
 func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 	log := r.logger.WithStation(streamName)
 	keepDays := r.config.GetStreamKeepDays(streamName)
-	
+
 	cutoff := time.Now().AddDate(0, 0, -keepDays)
-	
+
 	err := filepath.Walk(streamDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if info.IsDir() {
 			return nil
 		}
-		
+
 		if info.ModTime().Before(cutoff) {
 			if err := os.Remove(path); err != nil {
 				log.Warnf("Failed to remove old file %s: %v", path, err)
@@ -464,10 +464,10 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 				log.Debugf("Removed old file: %s", path)
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		log.Errorf("Cleanup failed: %v", err)
 	} else {
