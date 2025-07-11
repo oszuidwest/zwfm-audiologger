@@ -103,7 +103,6 @@ func (r *Recorder) RecordAll(ctx context.Context) error {
 
 // recordStream records a single stream with resilience and retry logic
 func (r *Recorder) recordStream(ctx context.Context, streamName string, stream config.Stream, timestamp string) error {
-	log := r.logger.WithStation(streamName)
 
 	// Initialize recording stats
 	r.initStats(streamName)
@@ -138,19 +137,21 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 	if utils.FileExists(outputFile) {
 		// Check if existing file is complete and valid
 		if r.validateRecording(outputFile, time.Duration(stream.RecordDuration), bitrate) {
-			log.Infof("Valid recording already exists for this hour: %s", timestamp)
+			r.logger.WithStation(streamName).Infof("Valid recording already exists for this hour: %s", timestamp)
 			return nil
 		}
-		log.Warnf("Incomplete recording exists, will retry: %s", timestamp)
+		r.logger.WithStation(streamName).Warnf("Incomplete recording exists, will retry: %s", timestamp)
 		// Remove incomplete file
-		os.Remove(outputFile)
+		if err := os.Remove(outputFile); err != nil {
+			r.logger.WithStation(streamName).Warnf("Failed to remove incomplete file %s: %v", outputFile, err)
+		}
 	}
 
 	// Start metadata fetch in background
 	go r.metadata.Fetch(streamName, stream, streamDir, timestamp)
 
 	// Start recording with retry logic
-	log.Infof("Starting recording: %s", timestamp)
+	r.logger.WithStation(streamName).Infof("Starting recording: %s", timestamp)
 
 	if err := r.recordWithRetry(ctx, stream.URL, outputFile, time.Duration(stream.RecordDuration), streamName); err != nil {
 		r.updateStats(streamName, func(s *RecordingStats) {
@@ -168,7 +169,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 		return err
 	}
 
-	log.Infof("Recording completed and validated: %s", timestamp)
+	r.logger.WithStation(streamName).Infof("Recording completed and validated: %s", timestamp)
 	return nil
 }
 
@@ -213,8 +214,7 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 			s.Attempts = attempt
 		})
 
-		log := r.logger.WithStation(streamName)
-		log.Infof("Starting recording attempt %d", attempt)
+		r.logger.WithStation(streamName).Infof("Starting recording attempt %d", attempt)
 
 		// Calculate adaptive timeout based on attempt
 		timeoutMultiplier := time.Duration(attempt)
@@ -224,11 +224,11 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 		cancel()
 
 		if err == nil {
-			log.Info("Recording completed successfully")
+			r.logger.WithStation(streamName).Info("Recording completed successfully")
 			return nil
 		}
 
-		log.Warnf("Recording attempt %d failed: %v", attempt, err)
+		r.logger.WithStation(streamName).Warnf("Recording attempt %d failed: %v", attempt, err)
 		r.updateStats(streamName, func(s *RecordingStats) {
 			s.LastError = err
 		})
@@ -236,7 +236,7 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 		// If not the last attempt, wait before retrying
 		if attempt < maxRetries {
 			retryDelay := baseDelay * time.Duration(attempt)
-			log.Infof("Waiting %v before retry", retryDelay)
+			r.logger.WithStation(streamName).Infof("Waiting %v before retry", retryDelay)
 			select {
 			case <-time.After(retryDelay):
 			case <-ctx.Done():
@@ -311,7 +311,11 @@ func (r *Recorder) detectStreamBitrate(streamURL string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("stream connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			r.logger.Warnf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
 		return 0, fmt.Errorf("stream returned status %d", resp.StatusCode)
@@ -350,12 +354,6 @@ func (r *Recorder) detectStreamBitrate(streamURL string) (int, error) {
 	return 0, fmt.Errorf("unable to detect bitrate from headers or content")
 }
 
-// detectBitrateFromContent is now integrated into detectStreamBitrate
-// This function is kept for compatibility but not used
-func (r *Recorder) detectBitrateFromContent(streamURL string) (int, error) {
-	// This functionality is now part of detectStreamBitrate
-	return r.detectStreamBitrate(streamURL)
-}
 
 // detectMP3Bitrate analyzes MP3 data to detect bitrate
 func (r *Recorder) detectMP3Bitrate(data []byte) (int, error) {
@@ -443,7 +441,6 @@ func (r *Recorder) GetStats() map[string]RecordingStats {
 
 // cleanupOldFiles removes old recording files based on retention policy
 func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
-	log := r.logger.WithStation(streamName)
 	keepDays := r.config.GetStreamKeepDays(streamName)
 
 	cutoff := time.Now().AddDate(0, 0, -keepDays)
@@ -459,9 +456,9 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 
 		if info.ModTime().Before(cutoff) {
 			if err := os.Remove(path); err != nil {
-				log.Warnf("Failed to remove old file %s: %v", path, err)
+				r.logger.WithStation(streamName).Warnf("Failed to remove old file %s: %v", path, err)
 			} else {
-				log.Debugf("Removed old file: %s", path)
+				r.logger.WithStation(streamName).Debugf("Removed old file: %s", path)
 			}
 		}
 
@@ -469,8 +466,8 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 	})
 
 	if err != nil {
-		log.Errorf("Cleanup failed: %v", err)
+		r.logger.WithStation(streamName).Errorf("Cleanup failed: %v", err)
 	} else {
-		log.Info("Cleanup completed")
+		r.logger.WithStation(streamName).Info("Cleanup completed")
 	}
 }

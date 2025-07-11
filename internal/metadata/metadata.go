@@ -33,30 +33,28 @@ func New(log *logger.Logger) *Fetcher {
 
 // Fetch fetches metadata for a stream and saves it to a .meta file
 func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, timestamp string) {
-	log := f.logger.WithStation(streamName)
-
 	if stream.MetadataURL == "" {
-		log.Debug("No metadata URL configured")
+		f.logger.WithStation(streamName).Debug("No metadata URL configured")
 		return
 	}
 
-	log.Debug(fmt.Sprintf("Fetching metadata from: %s", stream.MetadataURL))
-	log.Debug(fmt.Sprintf("Parse metadata: %t, JSON path: %s", stream.ParseMetadata, stream.MetadataJSONPath))
+	f.logger.WithStation(streamName).Debug(fmt.Sprintf("Fetching metadata from: %s", stream.MetadataURL))
+	f.logger.WithStation(streamName).Debug(fmt.Sprintf("Parse metadata: %t, JSON path: %s", stream.ParseMetadata, stream.MetadataJSONPath))
 
 	programName := f.fetchProgramName(stream)
 	if programName == "" {
-		log.Warn("No program name found, using fallback")
+		f.logger.WithStation(streamName).Warn("No program name found, using fallback")
 		programName = "Unknown Program"
 	}
 
 	// Write metadata to file
 	metaFile := filepath.Join(streamDir, timestamp+".meta")
 	if err := os.WriteFile(metaFile, []byte(programName), 0644); err != nil {
-		log.Errorf("Failed to write metadata file: %v", err)
+		f.logger.WithStation(streamName).Errorf("Failed to write metadata file: %v", err)
 		return
 	}
 
-	log.Infof("Stored metadata - %s - %s", timestamp, programName)
+	f.logger.WithStation(streamName).Infof("Stored metadata - %s - %s", timestamp, programName)
 }
 
 // fetchProgramName fetches the program name from the metadata URL
