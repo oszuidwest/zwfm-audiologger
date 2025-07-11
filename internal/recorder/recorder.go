@@ -109,7 +109,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 	r.initStats(streamName)
 	
 	// Pre-flight checks and bitrate detection
-	bitrate, err := r.preflightChecks(streamName, stream)
+	bitrate, err := r.preflightChecks(ctx, streamName, stream)
 	if err != nil {
 		r.updateStats(streamName, func(s *RecordingStats) {
 			s.LastError = err
@@ -173,7 +173,7 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 }
 
 // preflightChecks performs health checks and bitrate detection before recording
-func (r *Recorder) preflightChecks(streamName string, stream config.Stream) (int, error) {
+func (r *Recorder) preflightChecks(ctx context.Context, streamName string, stream config.Stream) (int, error) {
 	// Check disk space (require at least 500MB free)
 	if !r.checkDiskSpace(r.config.RecordingDir, 500*1024*1024) {
 		return 0, fmt.Errorf("insufficient disk space")
