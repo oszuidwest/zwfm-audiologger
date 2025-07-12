@@ -160,9 +160,9 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	}
 
 	// Parse times as Amsterdam time regardless of input timezone
-	startTimeLocal := time.Date(startTime.Year(), startTime.Month(), startTime.Day(), 
+	startTimeLocal := time.Date(startTime.Year(), startTime.Month(), startTime.Day(),
 		startTime.Hour(), startTime.Minute(), startTime.Second(), startTime.Nanosecond(), loc)
-	endTimeLocal := time.Date(endTime.Year(), endTime.Month(), endTime.Day(), 
+	endTimeLocal := time.Date(endTime.Year(), endTime.Month(), endTime.Day(),
 		endTime.Hour(), endTime.Minute(), endTime.Second(), endTime.Nanosecond(), loc)
 
 	s.logger.Debug("timezone conversion", "input", startTime.Format(time.RFC3339), "local", startTimeLocal.Format(time.RFC3339))
