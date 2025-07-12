@@ -282,6 +282,9 @@ docker run -d \
 ```
 
 ### Docker Compose (Recommended)
+
+The docker-compose.yml uses Docker named volumes for persistent data storage:
+
 ```bash
 # Start both recorder and API server
 docker-compose up -d
@@ -289,11 +292,26 @@ docker-compose up -d
 # View logs
 docker-compose logs -f
 
+# View data location
+docker volume inspect zwfm-audiologger_audiologger-data
+
 # Stop services
 docker-compose down
 
 # Update to latest version
 docker-compose pull && docker-compose up -d
+
+# Backup data
+docker run --rm -v zwfm-audiologger_audiologger-data:/data -v $(pwd):/backup alpine tar czf /backup/audiologger-backup.tar.gz /data
+```
+
+**Alternative: Local bind mounts**
+If you prefer local directories for easier access:
+```yaml
+volumes:
+  - ./data:/var/audio          # Local data directory
+  - ./streams.json:/app/streams.json:ro
+  - ./logs:/var/log            # Local logs directory
 ```
 
 ### Building from Source
