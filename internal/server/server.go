@@ -177,7 +177,7 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	offsetFromHour := startTimeLocal.Sub(recordingHour)
 	duration := endTimeLocal.Sub(startTimeLocal)
 
-	tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("segment_%s_%d.mp3", streamName, time.Now().UnixNano()))
+	tempFile := filepath.Join(s.config.Server.CacheDir, fmt.Sprintf(".tmp_segment_%s_%d.mp3", streamName, time.Now().UnixNano()))
 
 	if err := s.extractSegment(recordingPath, tempFile, offsetFromHour, duration); err != nil {
 		return "", fmt.Errorf("failed to extract segment: %w", err)
