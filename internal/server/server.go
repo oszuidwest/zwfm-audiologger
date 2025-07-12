@@ -134,17 +134,9 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 		streamName, startTime.Format("2006-01-02-15-04-05"), endTime.Format("2006-01-02-15-04-05")))
 
 	http.ServeFile(w, r, segment)
-
-	go func() {
-		time.Sleep(10 * time.Second)
-		if err := os.Remove(segment); err != nil {
-			s.logger.Debug("failed to cleanup temporary segment file", "error", err)
-		}
-	}()
 }
 
 // generateAudioSegmentFromHourlyRecording extracts audio segments from hourly recordings
-// Uses timezone conversion to ensure requests align with recording boundaries
 func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, startTime, endTime time.Time) (string, error) {
 	if cachedPath, found := s.cache.GetCachedSegment(streamName, s.config.Timezone, startTime, endTime); found {
 		s.logger.Debug("serving cached segment", "stream", streamName)
@@ -194,6 +186,13 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	cachedPath, err := s.cache.CacheSegment(streamName, s.config.Timezone, startTime, endTime, tempFile)
 	if err != nil {
 		s.logger.Warn("failed to cache segment", "error", err)
+		// Schedule cleanup for temp file since caching failed
+		go func() {
+			time.Sleep(10 * time.Second)
+			if err := os.Remove(tempFile); err != nil {
+				s.logger.Debug("failed to cleanup temporary segment file", "error", err)
+			}
+		}()
 		return tempFile, nil
 	}
 
