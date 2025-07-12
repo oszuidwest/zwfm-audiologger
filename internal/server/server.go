@@ -151,23 +151,26 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 		return cachedPath, nil
 	}
 
-	// Convert RFC3339 request times to recording timezone (Europe/Amsterdam)
-	// This ensures segment requests align with actual recording hour boundaries
-	loc, err := time.LoadLocation("Europe/Amsterdam")
+	// Treat all request times as recording timezone (same as recordings)
+	// Simple: no timezone conversion, no standards confusion
+	loc, err := s.config.GetTimezone()
 	if err != nil {
 		s.logger.Error("failed to load timezone", "error", err)
 		loc = time.Local // Fallback to server timezone
 	}
 
-	startTimeLocal := startTime.In(loc)
-	endTimeLocal := endTime.In(loc)
+	// Parse times as Amsterdam time regardless of input timezone
+	startTimeLocal := time.Date(startTime.Year(), startTime.Month(), startTime.Day(), 
+		startTime.Hour(), startTime.Minute(), startTime.Second(), startTime.Nanosecond(), loc)
+	endTimeLocal := time.Date(endTime.Year(), endTime.Month(), endTime.Day(), 
+		endTime.Hour(), endTime.Minute(), endTime.Second(), endTime.Nanosecond(), loc)
 
 	s.logger.Debug("timezone conversion", "input", startTime.Format(time.RFC3339), "local", startTimeLocal.Format(time.RFC3339))
 
 	// Find the recording hour by truncating to hour boundary (00:00 of that hour)
 	// Example: 2024-01-15 14:37:23 becomes 2024-01-15 14:00:00
 	recordingHour := time.Date(startTimeLocal.Year(), startTimeLocal.Month(), startTimeLocal.Day(), startTimeLocal.Hour(), 0, 0, 0, loc)
-	timestamp := utils.FormatTimestamp(recordingHour)
+	timestamp := utils.FormatTimestamp(recordingHour, s.config.Timezone)
 
 	s.logger.Debug("looking for recording", "timestamp", timestamp)
 

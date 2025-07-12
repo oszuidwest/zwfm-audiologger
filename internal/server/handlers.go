@@ -164,7 +164,7 @@ func (s *Server) calculateStreamStats(streamName string) (totalSize int64, lastS
 
 	for _, recording := range recordings {
 		totalSize += recording.Size
-		if t, err := utils.ParseTimestamp(recording.Timestamp); err == nil {
+		if t, err := utils.ParseTimestamp(recording.Timestamp, s.config.Timezone); err == nil {
 			if t.After(lastSeen) {
 				lastSeen = t
 			}
@@ -231,7 +231,7 @@ func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
 		Name:        streamName,
 		URL:         stream.URL,
 		Status:      "active",
-		LastSeen:    utils.ToAPIString(lastSeen),
+		LastSeen:    utils.ToAPIString(lastSeen, s.config.Timezone),
 		Recordings:  recordingCount,
 		TotalSize:   totalSize,
 		KeepDays:    s.config.GetStreamKeepDays(streamName),
@@ -264,7 +264,7 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startTime, err := utils.ParseTimestamp(timestamp)
+	startTime, err := utils.ParseTimestamp(timestamp, s.config.Timezone)
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "Invalid timestamp format", err.Error())
 		return
@@ -278,8 +278,8 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 
 	recording := Recording{
 		Timestamp:   timestamp,
-		StartTime:   utils.ToAPIString(startTime),
-		EndTime:     utils.ToAPIString(endTime),
+		StartTime:   utils.ToAPIString(startTime, s.config.Timezone),
+		EndTime:     utils.ToAPIString(endTime, s.config.Timezone),
 		Duration:    "1h",
 		Size:        stat.Size(),
 		SizeHuman:   formatFileSize(stat.Size()),
@@ -363,7 +363,7 @@ func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
 			Name:        streamName,
 			URL:         stream.URL,
 			Status:      "active",
-			LastSeen:    utils.ToAPIString(lastSeen),
+			LastSeen:    utils.ToAPIString(lastSeen, s.config.Timezone),
 			Recordings:  recordingCount,
 			TotalSize:   totalSize,
 			KeepDays:    s.config.GetStreamKeepDays(streamName),
@@ -394,7 +394,7 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 
 	recordings := make([]Recording, len(rawRecordings))
 	for i, raw := range rawRecordings {
-		startTime, _ := utils.ParseTimestamp(raw.Timestamp)
+		startTime, _ := utils.ParseTimestamp(raw.Timestamp, s.config.Timezone)
 		endTime := startTime.Add(time.Hour)
 
 		metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, raw.Timestamp)
@@ -404,8 +404,8 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 
 		recordings[i] = Recording{
 			Timestamp:   raw.Timestamp,
-			StartTime:   utils.ToAPIString(startTime),
-			EndTime:     utils.ToAPIString(endTime),
+			StartTime:   utils.ToAPIString(startTime, s.config.Timezone),
+			EndTime:     utils.ToAPIString(endTime, s.config.Timezone),
 			Duration:    "1h",
 			Size:        raw.Size,
 			SizeHuman:   formatFileSize(raw.Size),
@@ -451,7 +451,7 @@ func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 		Stream:    streamName,
 		Timestamp: timestamp,
 		Metadata:  metadata,
-		FetchedAt: utils.ToAPIString(utils.Now()),
+		FetchedAt: utils.ToAPIString(utils.NowInTimezone(s.config.Timezone), s.config.Timezone),
 	}
 
 	s.writeAPIResponse(w, http.StatusOK, response, 1)

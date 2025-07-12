@@ -13,6 +13,7 @@ type Config struct {
 	LogFile      string            `json:"log_file"`
 	KeepDays     int               `json:"keep_days"`
 	Debug        bool              `json:"debug"`
+	Timezone     string            `json:"timezone"`
 	Streams      map[string]Stream `json:"streams"`
 	Server       ServerConfig      `json:"server"`
 }
@@ -90,6 +91,9 @@ func (c *Config) validate() (*Config, error) {
 	if c.KeepDays == 0 {
 		c.KeepDays = 7
 	}
+	if c.Timezone == "" {
+		c.Timezone = "Europe/Amsterdam"
+	}
 	if c.Server.Port == 0 {
 		c.Server.Port = 8080
 	}
@@ -130,4 +134,8 @@ func (c *Config) GetStreamKeepDays(streamName string) int {
 		return stream.KeepDays
 	}
 	return c.KeepDays
+}
+
+func (c *Config) GetTimezone() (*time.Location, error) {
+	return time.LoadLocation(c.Timezone)
 }

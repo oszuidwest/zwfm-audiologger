@@ -40,7 +40,7 @@ func (c *Cache) Init() error {
 // Ensures identical requests for same time range reuse cached segments
 func (c *Cache) generateCacheKey(streamName string, startTime, endTime time.Time) string {
 	// Create deterministic string from stream name and time range
-	data := fmt.Sprintf("%s-%s-%s", streamName, utils.ToAPIString(startTime), utils.ToAPIString(endTime))
+	data := fmt.Sprintf("%s-%s-%s", streamName, utils.ToAPIString(startTime, "UTC"), utils.ToAPIString(endTime, "UTC"))
 	// Hash to fixed-length, collision-resistant key
 	hash := sha256.Sum256([]byte(data))
 	// URL-safe base64 encoding for filesystem compatibility

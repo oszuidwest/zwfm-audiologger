@@ -102,6 +102,7 @@ The `streams.json` file contains global settings and per-stream configuration:
   "log_file": "/var/log/audiologger.log", 
   "keep_days": 31,
   "debug": false,
+  "timezone": "Europe/Amsterdam",
   "server": {
     "port": 8080,
     "read_timeout": "30s",
@@ -130,6 +131,7 @@ The `streams.json` file contains global settings and per-stream configuration:
 | `log_file` | `{recording_dir}/audiologger.log` | Log file location |
 | `keep_days` | `7` | Default retention period (days) |
 | `debug` | `false` | Enable debug logging with FFmpeg output |
+| `timezone` | `Europe/Amsterdam` | Timezone for recordings and API |
 
 ### Server Settings
 | Setting | Default | Description |
@@ -223,10 +225,52 @@ sudo systemctl status audiologger
 | `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}` | Get recording info |
 | `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}/download` | Download recording |
 | `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}/metadata` | Get metadata |
-| `GET` | `/api/v1/streams/{stream}/segments?start={RFC3339}&end={RFC3339}` | Get audio segment |
+| `GET` | `/api/v1/streams/{stream}/segments?start={timestamp}&end={timestamp}` | Get audio segment |
 | `GET` | `/api/v1/system/cache` | Cache statistics |
 | `GET` | `/api/v1/system/stats` | System statistics |
 
+### Timezone Handling
+
+**Simple Rule: All times use the configured timezone.**
+
+The application records in a configurable timezone (default: Europe/Amsterdam) and treats all API requests as the same timezone. No timezone conversion needed - just use the time you want.
+
+#### Configuration
+
+Add timezone to your `streams.json`:
+
+```json
+{
+  "timezone": "Europe/Amsterdam",
+  "recording_dir": "/var/audio",
+  "streams": {...}
+}
+```
+
+**Common timezone examples:**
+- `"Europe/Amsterdam"` (default)
+- `"America/New_York"` 
+- `"America/Los_Angeles"`
+- `"Europe/London"`
+- `"Asia/Tokyo"`
+- `"UTC"`
+
+#### Usage
+
+```bash
+# Want audio from 14:30-14:35 in your configured timezone? Just request 14:30!
+curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-07-15T14:30:00&end=2024-07-15T14:35:00" -o segment.mp3
+
+# Timezone suffixes (Z, +01:00, etc.) are ignored - everything uses your configured timezone
+curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-07-15T14:30:00Z&end=2024-07-15T14:35:00Z" -o segment.mp3
+```
+
+**Key Points:**
+- Recordings are stored as `2024-07-15-14.mp3` (in your configured timezone)
+- API requests use the same configured timezone  
+- No timezone conversion math required
+- Timezone suffixes in requests are ignored
+- Default timezone is `Europe/Amsterdam` if not specified
 
 ### Example API Usage
 ```bash
@@ -252,8 +296,8 @@ curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/down
 # Get metadata
 curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/metadata | jq
 
-# Get 5-minute audio segment
-curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-01-15T14:30:00Z&end=2024-01-15T14:35:00Z" -o segment.mp3
+# Get 5-minute audio segment (Amsterdam time)
+curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-01-15T14:30:00&end=2024-01-15T14:35:00" -o segment.mp3
 
 # System statistics
 curl http://localhost:8080/api/v1/system/stats | jq

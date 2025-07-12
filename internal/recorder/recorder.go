@@ -70,7 +70,7 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 }
 
 func (r *Recorder) RecordAll(ctx context.Context) error {
-	timestamp := utils.GetCurrentHour()
+	timestamp := utils.GetCurrentHour(r.config.Timezone)
 	if err := utils.EnsureDir(r.config.RecordingDir); err != nil {
 		return fmt.Errorf("failed to create recording directory: %w", err)
 	}

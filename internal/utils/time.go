@@ -18,19 +18,18 @@ const (
 	DisplayFormat = "02-01-2006 15:04"
 )
 
-// GetAppTimezone returns the application's standard timezone (Europe/Amsterdam)
-// All recordings and timestamps use this timezone for consistency
+// GetAppTimezone returns the application's standard timezone
 // Falls back to UTC if timezone loading fails
-func GetAppTimezone() *time.Location {
-	loc, err := time.LoadLocation("Europe/Amsterdam")
+func GetAppTimezone(timezone string) *time.Location {
+	loc, err := time.LoadLocation(timezone)
 	if err != nil {
 		return time.UTC
 	}
 	return loc
 }
 
-func Now() time.Time {
-	return time.Now().In(GetAppTimezone())
+func NowInTimezone(timezone string) time.Time {
+	return time.Now().In(GetAppTimezone(timezone))
 }
 
 func FormatDuration(d time.Duration) string {
@@ -42,26 +41,26 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
 }
 
-func FormatTimestamp(t time.Time) string {
-	return t.In(GetAppTimezone()).Format(UniversalFormat)
+func FormatTimestamp(t time.Time, timezone string) string {
+	return t.In(GetAppTimezone(timezone)).Format(UniversalFormat)
 }
 
-func ParseTimestamp(timestamp string) (time.Time, error) {
+func ParseTimestamp(timestamp string, timezone string) (time.Time, error) {
 	t, err := time.Parse(UniversalFormat, timestamp)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, GetAppTimezone()), nil
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, GetAppTimezone(timezone)), nil
 }
 
-func ToAPIString(t time.Time) string {
-	return t.In(GetAppTimezone()).Format("2006-01-02 15:04")
+func ToAPIString(t time.Time, timezone string) string {
+	return t.In(GetAppTimezone(timezone)).Format("2006-01-02 15:04")
 }
 
 // GetCurrentHour returns the current hour in UniversalFormat (YYYY-MM-DD-HH)
 // Truncates to hour boundary (sets minutes/seconds to 0) for consistent recording naming
 // Example: if current time is 14:37:23, returns "2024-01-15-14"
-func GetCurrentHour() string {
-	now := Now()
-	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone()))
+func GetCurrentHour(timezone string) string {
+	now := NowInTimezone(timezone)
+	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone(timezone)), timezone)
 }
