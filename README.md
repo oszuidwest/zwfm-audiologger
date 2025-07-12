@@ -263,7 +263,41 @@ curl http://localhost:8080/api/v1/system/cache | jq
 
 ## Docker Deployment
 
-### Dockerfile
+### Using Pre-built Container
+The application is available as a pre-built container from GitHub Container Registry:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/oszuidwest/zwfm-audiologger:latest
+
+# Run with docker
+docker run -d \
+  --name audiologger \
+  -p 8080:8080 \
+  -v $(pwd)/data:/var/audio \
+  -v $(pwd)/streams.json:/app/streams.json:ro \
+  -v $(pwd)/logs:/var/log \
+  -e TZ=Europe/Amsterdam \
+  ghcr.io/oszuidwest/zwfm-audiologger:latest
+```
+
+### Docker Compose (Recommended)
+```bash
+# Start both recorder and API server
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Update to latest version
+docker-compose pull && docker-compose up -d
+```
+
+### Building from Source
+If you want to build the container yourself:
 ```dockerfile
 FROM golang:1.24-alpine AS builder
 RUN apk add --no-cache git
@@ -278,18 +312,6 @@ COPY --from=builder /app/audiologger .
 COPY streams.json .
 EXPOSE 8080
 CMD ["./audiologger"]
-```
-
-### Docker Compose
-```bash
-# Start both recorder and API server
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
 ```
 
 ## Monitoring and Debugging

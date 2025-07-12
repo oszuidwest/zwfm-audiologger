@@ -1,6 +1,6 @@
 services:
   audiologger:
-    build: .
+    image: ghcr.io/oszuidwest/zwfm-audiologger:latest
     container_name: audiologger
     restart: unless-stopped
     ports:
