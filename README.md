@@ -10,7 +10,6 @@ A production-ready Go application for recording hourly audio streams and serving
 - **Metadata Collection**: Broadcast API integration with JSON parsing
 - **Dynamic Bitrate Detection**: Automatic detection from icecast streams
 - **Structured Logging**: Clean slog-based logging with station context
-- **Production Ready**: Graceful shutdown, error handling, and configurable retention
 - **Intelligent Caching**: Fast segment serving with automatic cache management
 - **Configurable Timezone**: Deploy anywhere with timezone-aware recording and API
 

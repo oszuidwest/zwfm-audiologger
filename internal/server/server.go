@@ -101,19 +101,19 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	endTimeStr := r.URL.Query().Get("end")
 
 	if startTimeStr == "" || endTimeStr == "" {
-		s.writeAPIError(w, http.StatusBadRequest, "start and end parameters are required (RFC3339 format)", "")
+		s.writeAPIError(w, http.StatusBadRequest, "start and end parameters are required", "")
 		return
 	}
 
-	startTime, err := time.Parse(time.RFC3339, startTimeStr)
+	startTime, err := utils.ParseTimestampAsTimezone(startTimeStr, s.config.Timezone)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "Invalid start time format (RFC3339 required)", "")
+		s.writeAPIError(w, http.StatusBadRequest, "Invalid start time format", err.Error())
 		return
 	}
 
-	endTime, err := time.Parse(time.RFC3339, endTimeStr)
+	endTime, err := utils.ParseTimestampAsTimezone(endTimeStr, s.config.Timezone)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "Invalid end time format (RFC3339 required)", "")
+		s.writeAPIError(w, http.StatusBadRequest, "Invalid end time format", err.Error())
 		return
 	}
 
@@ -146,7 +146,7 @@ func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 // generateAudioSegmentFromHourlyRecording extracts audio segments from hourly recordings
 // Uses timezone conversion to ensure requests align with recording boundaries
 func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, startTime, endTime time.Time) (string, error) {
-	if cachedPath, found := s.cache.GetCachedSegment(streamName, startTime, endTime); found {
+	if cachedPath, found := s.cache.GetCachedSegment(streamName, s.config.Timezone, startTime, endTime); found {
 		s.logger.Debug("serving cached segment", "stream", streamName)
 		return cachedPath, nil
 	}
@@ -165,7 +165,7 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 	endTimeLocal := time.Date(endTime.Year(), endTime.Month(), endTime.Day(),
 		endTime.Hour(), endTime.Minute(), endTime.Second(), endTime.Nanosecond(), loc)
 
-	s.logger.Debug("timezone conversion", "input", startTime.Format(time.RFC3339), "local", startTimeLocal.Format(time.RFC3339))
+	s.logger.Debug("timezone handling", "start_time", utils.ToAPIString(startTime, s.config.Timezone), "end_time", utils.ToAPIString(endTime, s.config.Timezone))
 
 	// Find the recording hour by truncating to hour boundary (00:00 of that hour)
 	// Example: 2024-01-15 14:37:23 becomes 2024-01-15 14:00:00
@@ -191,7 +191,7 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(streamName string, star
 		return "", fmt.Errorf("failed to extract segment: %w", err)
 	}
 
-	cachedPath, err := s.cache.CacheSegment(streamName, startTime, endTime, tempFile)
+	cachedPath, err := s.cache.CacheSegment(streamName, s.config.Timezone, startTime, endTime, tempFile)
 	if err != nil {
 		s.logger.Warn("failed to cache segment", "error", err)
 		return tempFile, nil

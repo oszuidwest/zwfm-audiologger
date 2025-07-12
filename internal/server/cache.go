@@ -38,9 +38,9 @@ func (c *Cache) Init() error {
 // generateCacheKey creates a unique cache key for audio segments
 // Format: SHA256(streamName-startTime-endTime) -> base64 URL-safe encoding
 // Ensures identical requests for same time range reuse cached segments
-func (c *Cache) generateCacheKey(streamName string, startTime, endTime time.Time) string {
+func (c *Cache) generateCacheKey(streamName, timezone string, startTime, endTime time.Time) string {
 	// Create deterministic string from stream name and time range
-	data := fmt.Sprintf("%s-%s-%s", streamName, utils.ToAPIString(startTime, "UTC"), utils.ToAPIString(endTime, "UTC"))
+	data := fmt.Sprintf("%s-%s-%s", streamName, utils.ToAPIString(startTime, timezone), utils.ToAPIString(endTime, timezone))
 	// Hash to fixed-length, collision-resistant key
 	hash := sha256.Sum256([]byte(data))
 	// URL-safe base64 encoding for filesystem compatibility
@@ -49,8 +49,8 @@ func (c *Cache) generateCacheKey(streamName string, startTime, endTime time.Time
 
 // GetCachedSegment retrieves a cached audio segment if valid
 // Performs TTL check and file existence validation before returning
-func (c *Cache) GetCachedSegment(streamName string, startTime, endTime time.Time) (string, bool) {
-	key := c.generateCacheKey(streamName, startTime, endTime)
+func (c *Cache) GetCachedSegment(streamName, timezone string, startTime, endTime time.Time) (string, bool) {
+	key := c.generateCacheKey(streamName, timezone, startTime, endTime)
 
 	entry, exists := c.entries[key]
 	if !exists {
@@ -75,8 +75,8 @@ func (c *Cache) GetCachedSegment(streamName string, startTime, endTime time.Time
 	return entry.FilePath, true
 }
 
-func (c *Cache) CacheSegment(streamName string, startTime, endTime time.Time, tempFile string) (string, error) {
-	key := c.generateCacheKey(streamName, startTime, endTime)
+func (c *Cache) CacheSegment(streamName, timezone string, startTime, endTime time.Time, tempFile string) (string, error) {
+	key := c.generateCacheKey(streamName, timezone, startTime, endTime)
 
 	cachedFilename := key + ".mp3"
 	cachedPath := filepath.Join(c.dir, cachedFilename)

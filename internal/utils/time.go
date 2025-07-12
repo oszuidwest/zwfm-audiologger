@@ -60,6 +60,50 @@ func ToAPIString(t time.Time, timezone string) string {
 // GetCurrentHour returns the current hour in UniversalFormat (YYYY-MM-DD-HH)
 // Truncates to hour boundary (sets minutes/seconds to 0) for consistent recording naming
 // Example: if current time is 14:37:23, returns "2024-01-15-14"
+// ParseTimestampAsTimezone parses a timestamp and treats it as the configured timezone
+// Accepts various formats but always interprets them as the specified timezone:
+// - "2025-07-12T14:30:00" (ISO format without timezone)
+// - "2025-07-12T14:30:00Z" (UTC suffix ignored)
+// - "2025-07-12T14:30:00+02:00" (timezone suffix ignored)
+// This implements the "one timezone for everything" principle
+func ParseTimestampAsTimezone(timestampStr, timezone string) (time.Time, error) {
+	// Try common timestamp formats, but always interpret as configured timezone
+	formats := []string{
+		"2006-01-02T15:04:05",           // Basic ISO format
+		"2006-01-02T15:04:05Z",          // ISO with Z (ignore timezone)
+		"2006-01-02T15:04:05-07:00",     // ISO with timezone offset (ignore)
+		"2006-01-02T15:04:05.000Z",      // ISO with milliseconds and Z
+		"2006-01-02T15:04:05.000-07:00", // ISO with milliseconds and offset
+		"2006-01-02 15:04:05",           // Simple datetime format
+	}
+
+	var parsedTime time.Time
+	var err error
+
+	// Try each format until one works
+	for _, format := range formats {
+		parsedTime, err = time.Parse(format, timestampStr)
+		if err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return time.Time{}, fmt.Errorf("unable to parse timestamp '%s': %w", timestampStr, err)
+	}
+
+	// Always interpret the parsed time as the configured timezone
+	// This ignores any timezone information in the input string
+	loc := GetAppTimezone(timezone)
+	localTime := time.Date(
+		parsedTime.Year(), parsedTime.Month(), parsedTime.Day(),
+		parsedTime.Hour(), parsedTime.Minute(), parsedTime.Second(),
+		parsedTime.Nanosecond(), loc,
+	)
+
+	return localTime, nil
+}
+
 func GetCurrentHour(timezone string) string {
 	now := NowInTimezone(timezone)
 	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone(timezone)), timezone)
