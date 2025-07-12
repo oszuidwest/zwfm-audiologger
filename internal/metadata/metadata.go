@@ -15,13 +15,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Fetcher handles metadata fetching from APIs
 type Fetcher struct {
 	logger *logger.Logger
 	client *http.Client
 }
 
-// New creates a new metadata fetcher
 func New(log *logger.Logger) *Fetcher {
 	return &Fetcher{
 		logger: log,
@@ -31,7 +29,6 @@ func New(log *logger.Logger) *Fetcher {
 	}
 }
 
-// Fetch fetches metadata for a stream and saves it to a .meta file
 func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, timestamp string) {
 	if stream.MetadataURL == "" {
 		f.logger.Debug("no metadata URL configured", "station", streamName)
@@ -46,7 +43,6 @@ func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, time
 		programName = "Unknown Program"
 	}
 
-	// Write metadata to file
 	metaFile := filepath.Join(streamDir, timestamp+".meta")
 	if err := os.WriteFile(metaFile, []byte(programName), 0644); err != nil {
 		f.logger.Error("failed to write metadata file", "station", streamName, "file", metaFile, "error", err)
@@ -56,7 +52,6 @@ func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, time
 	f.logger.Info("stored metadata", "station", streamName, "timestamp", timestamp, "program", programName)
 }
 
-// fetchProgramName fetches the program name from the metadata URL
 func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -91,13 +86,15 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 
 	bodyStr := string(body)
 
-	// Parse JSON if parse_metadata is enabled and path is provided
+	// Parse JSON response using gjson path syntax if configured
+	// Example: "program.title" extracts {"program": {"title": "Morning Show"}} -> "Morning Show"
 	if stream.ParseMetadata && stream.MetadataJSONPath != "" {
-		// Clean the JSON path (remove leading dot if present)
+		// Remove leading dot from path for gjson compatibility
 		jsonPath := strings.TrimPrefix(stream.MetadataJSONPath, ".")
 
 		f.logger.Debug(fmt.Sprintf("Parsing metadata with path '%s' from JSON: %s", jsonPath, bodyStr))
 
+		// Use gjson to extract value at specified path
 		result := gjson.Get(bodyStr, jsonPath)
 		if result.Exists() {
 			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
@@ -107,11 +104,9 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 		}
 	}
 
-	// Return raw response if parse_metadata is disabled or parsing failed
 	return strings.TrimSpace(bodyStr)
 }
 
-// GetMetadata retrieves metadata for a specific recording
 func (f *Fetcher) GetMetadata(streamDir, timestamp string) (string, error) {
 	metaFile := filepath.Join(streamDir, timestamp+".meta")
 

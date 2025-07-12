@@ -11,7 +11,6 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-// API Response structures
 type APIResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
@@ -31,7 +30,6 @@ type APIMeta struct {
 	Count     int       `json:"count,omitempty"`
 }
 
-// Health check responses
 type HealthResponse struct {
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
@@ -51,12 +49,11 @@ type Check struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Stream responses
 type StreamInfo struct {
 	Name        string `json:"name"`
 	URL         string `json:"url"`
 	Status      string `json:"status"`
-	LastSeen    string `json:"last_seen,omitempty"` // YYYY-MM-DD HH:MM format (API)
+	LastSeen    string `json:"last_seen,omitempty"`
 	Recordings  int    `json:"recordings_count"`
 	TotalSize   int64  `json:"total_size_bytes"`
 	KeepDays    int    `json:"keep_days"`
@@ -67,11 +64,10 @@ type StreamsResponse struct {
 	Streams []StreamInfo `json:"streams"`
 }
 
-// Recording responses
 type Recording struct {
-	Timestamp   string        `json:"timestamp"`  // YYYY-MM-DD-HH format (universal)
-	StartTime   string        `json:"start_time"` // YYYY-MM-DD HH:MM format (API)
-	EndTime     string        `json:"end_time"`   // YYYY-MM-DD HH:MM format (API)
+	Timestamp   string        `json:"timestamp"`
+	StartTime   string        `json:"start_time"`
+	EndTime     string        `json:"end_time"`
 	Duration    string        `json:"duration"`
 	Size        int64         `json:"size_bytes"`
 	SizeHuman   string        `json:"size_human"`
@@ -90,15 +86,13 @@ type RecordingsResponse struct {
 	Stream     string      `json:"stream"`
 }
 
-// Metadata responses
 type MetadataResponse struct {
 	Stream    string `json:"stream"`
-	Timestamp string `json:"timestamp"` // YYYY-MM-DD-HH format (universal)
+	Timestamp string `json:"timestamp"`
 	Metadata  string `json:"metadata"`
-	FetchedAt string `json:"fetched_at"` // YYYY-MM-DD HH:MM format (API)
+	FetchedAt string `json:"fetched_at"`
 }
 
-// System responses
 type SystemStats struct {
 	Uptime          string                `json:"uptime"`
 	TotalRecordings int                   `json:"total_recordings"`
@@ -113,7 +107,6 @@ type StreamStat struct {
 	LastActive time.Time `json:"last_active"`
 }
 
-// writeJSON writes a JSON response
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -123,7 +116,6 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) 
 	}
 }
 
-// writeAPIResponse writes a structured API response
 func (s *Server) writeAPIResponse(w http.ResponseWriter, status int, data interface{}, count int) {
 	response := APIResponse{
 		Success: status < 400,
@@ -145,7 +137,6 @@ func (s *Server) writeAPIResponse(w http.ResponseWriter, status int, data interf
 	s.writeJSON(w, status, response)
 }
 
-// writeAPIError writes a structured API error response
 func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, details string) {
 	response := APIResponse{
 		Success: false,
@@ -165,7 +156,6 @@ func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, detai
 
 var startTime = time.Now()
 
-// calculateStreamStats calculates statistics for a stream
 func (s *Server) calculateStreamStats(streamName string) (totalSize int64, lastSeen time.Time, recordingCount int, err error) {
 	recordings, err := s.getRecordings(streamName)
 	if err != nil {
@@ -184,7 +174,6 @@ func (s *Server) calculateStreamStats(streamName string) (totalSize int64, lastS
 	return totalSize, lastSeen, len(recordings), nil
 }
 
-// healthHandler returns basic health information
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
 
@@ -196,14 +185,12 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// readinessHandler checks if the service is ready to serve requests
 func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	checks := []Check{
 		{Name: "cache", Status: "ok"},
 		{Name: "storage", Status: "ok"},
 	}
 
-	// Check if recording directory is accessible
 	if _, err := os.Stat(s.config.RecordingDir); os.IsNotExist(err) {
 		checks[1].Status = "error"
 		checks[1].Message = "Recording directory not accessible"
@@ -228,7 +215,6 @@ func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	}, len(checks))
 }
 
-// streamDetailsHandler returns detailed information about a specific stream
 func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
@@ -239,7 +225,6 @@ func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get stream statistics
 	totalSize, lastSeen, recordingCount, _ := s.calculateStreamStats(streamName)
 
 	streamInfo := StreamInfo{
@@ -256,7 +241,6 @@ func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, streamInfo, 1)
 }
 
-// recordingHandler returns information about a specific recording
 func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
@@ -280,7 +264,6 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse timestamp to get start/end times
 	startTime, err := utils.ParseTimestamp(timestamp)
 	if err != nil {
 		s.writeAPIError(w, http.StatusBadRequest, "Invalid timestamp format", err.Error())
@@ -288,7 +271,6 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	endTime := startTime.Add(time.Hour)
 
-	// Check if metadata exists
 	metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, timestamp)
 	hasMetadata := utils.FileExists(metadataPath)
 
@@ -317,7 +299,6 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, recording, 1)
 }
 
-// downloadRecordingHandler serves a complete recording file for download
 func (s *Server) downloadRecordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
@@ -341,7 +322,6 @@ func (s *Server) downloadRecordingHandler(w http.ResponseWriter, r *http.Request
 	http.ServeFile(w, r, recordingPath)
 }
 
-// systemStatsHandler returns comprehensive system statistics
 func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
 
@@ -373,7 +353,6 @@ func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, stats, 1)
 }
 
-// streamsHandler returns detailed information about all streams
 func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
 	streams := make([]StreamInfo, 0, len(s.config.Streams))
 
@@ -397,7 +376,6 @@ func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, StreamsResponse{Streams: streams}, len(streams))
 }
 
-// recordingsHandler returns detailed information about recordings for a stream
 func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
@@ -414,13 +392,11 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert to enhanced recordings
 	recordings := make([]Recording, len(rawRecordings))
 	for i, raw := range rawRecordings {
 		startTime, _ := utils.ParseTimestamp(raw.Timestamp)
 		endTime := startTime.Add(time.Hour)
 
-		// Check if metadata exists
 		metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, raw.Timestamp)
 		hasMetadata := utils.FileExists(metadataPath)
 
@@ -455,7 +431,6 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, response, len(recordings))
 }
 
-// metadataHandler returns metadata for a specific recording
 func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	streamName := vars["stream"]
@@ -482,7 +457,6 @@ func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, response, 1)
 }
 
-// Utility functions
 func formatFileSize(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {

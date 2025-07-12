@@ -5,29 +5,34 @@ import (
 	"time"
 )
 
-// Universal time format: YYYY-MM-DD-HH used everywhere
-// This ensures universal interpretation across the entire application
 const (
-	UniversalFormat = "2006-01-02-15"    // YYYY-MM-DD-HH (files, API, everything)
-	DisplayFormat   = "02-01-2006 15:04" // DD-MM-YYYY HH:MM (dashboard only)
+	// UniversalFormat defines the YYYY-MM-DD-HH pattern used consistently across:
+	// - Recording filenames (2024-01-15-14.mp3)
+	// - API endpoints (/recordings/2024-01-15-14)
+	// - Cache keys and internal timestamps
+	// This format ensures proper sorting and hour-boundary alignment
+	UniversalFormat = "2006-01-02-15"
+
+	// DisplayFormat provides human-readable timestamps for API responses
+	// Converts "2024-01-15-14" to "15-01-2024 14:00" for user interfaces
+	DisplayFormat = "02-01-2006 15:04"
 )
 
-// GetAppTimezone returns the application timezone (always Europe/Amsterdam)
+// GetAppTimezone returns the application's standard timezone (Europe/Amsterdam)
+// All recordings and timestamps use this timezone for consistency
+// Falls back to UTC if timezone loading fails
 func GetAppTimezone() *time.Location {
 	loc, err := time.LoadLocation("Europe/Amsterdam")
 	if err != nil {
-		// Fallback to UTC if timezone loading fails
 		return time.UTC
 	}
 	return loc
 }
 
-// Now returns current time in application timezone
 func Now() time.Time {
 	return time.Now().In(GetAppTimezone())
 }
 
-// FormatDuration formats a duration for FFmpeg (HH:MM:SS.mmm format)
 func FormatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
@@ -37,27 +42,25 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
 }
 
-// FormatTimestamp formats a time using universal format (YYYY-MM-DD-HH)
 func FormatTimestamp(t time.Time) string {
 	return t.In(GetAppTimezone()).Format(UniversalFormat)
 }
 
-// ParseTimestamp parses a universal timestamp (YYYY-MM-DD-HH)
 func ParseTimestamp(timestamp string) (time.Time, error) {
 	t, err := time.Parse(UniversalFormat, timestamp)
 	if err != nil {
 		return time.Time{}, err
 	}
-	// Ensure parsed time is in application timezone
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, GetAppTimezone()), nil
 }
 
-// ToAPIString converts time to API response format (YYYY-MM-DD HH:MM)
 func ToAPIString(t time.Time) string {
 	return t.In(GetAppTimezone()).Format("2006-01-02 15:04")
 }
 
-// GetCurrentHour returns the current hour timestamp (YYYY-MM-DD-HH)
+// GetCurrentHour returns the current hour in UniversalFormat (YYYY-MM-DD-HH)
+// Truncates to hour boundary (sets minutes/seconds to 0) for consistent recording naming
+// Example: if current time is 14:37:23, returns "2024-01-15-14"
 func GetCurrentHour() string {
 	now := Now()
 	return FormatTimestamp(time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, GetAppTimezone()))
