@@ -182,13 +182,14 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 
 // preflightChecks performs health checks and bitrate detection before recording
 func (r *Recorder) preflightChecks(ctx context.Context, streamName string, stream config.Stream) (int, error) {
-	// Detect stream bitrate from icecast headers
+	// Detect stream bitrate from icecast headers (this also validates stream accessibility)
 	bitrate, err := r.detectStreamBitrate(stream.URL)
 	if err != nil {
-		r.logger.Warn("bitrate detection failed, using default", "station", streamName, "default_kbps", 128, "error", err)
+		r.logger.Warn("bitrate detection failed, stream may be inaccessible", "station", streamName, "stream_url", stream.URL, "error", err)
+		r.logger.Info("using default bitrate for recording attempt", "station", streamName, "default_kbps", 128)
 		bitrate = 128 // Default fallback
 	} else {
-		r.logger.Info("bitrate detected", "station", streamName, "method", "icecast-headers", "bitrate_kbps", bitrate)
+		r.logger.Info("bitrate detected", "station", streamName, "method", "icecast-headers", "bitrate_kbps", bitrate, "stream_url", stream.URL)
 	}
 
 	return bitrate, nil
@@ -218,7 +219,7 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 			return nil
 		}
 
-		r.logger.Warn("recording attempt failed", "station", streamName, "attempt", attempt, "error", err)
+		r.logger.Warn("recording attempt failed", "station", streamName, "attempt", attempt, "error", err, "stream_url", streamURL)
 		r.updateStats(streamName, func(s *RecordingStats) {
 			s.LastError = err
 		})
@@ -240,35 +241,37 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 
 // startFFmpegWithContext starts FFmpeg with proper context handling
 func (r *Recorder) startFFmpegWithContext(ctx context.Context, streamURL, outputFile string, duration time.Duration) error {
-	// Enhanced FFmpeg settings for resilience
+	// Input options for network resilience
 	stream := ffmpeg.Input(streamURL, ffmpeg.KwArgs{
 		"reconnect":               "1",
 		"reconnect_at_eof":        "1",
 		"reconnect_streamed":      "1",
-		"reconnect_delay_max":     "60",                  // Reduced from 300 to fail faster
-		"reconnect_on_http_error": "404,500,502,503,504", // Added more error codes
-		"rw_timeout":              "30000000",            // Increased to 30 seconds
-		"timeout":                 "60000000",            // 60 second general timeout
+		"reconnect_delay_max":     "60",                  // Reasonable delay for icecast
+		"reconnect_on_http_error": "404,500,502,503,504", // Common HTTP errors
+		"rw_timeout":              "30000000",            // 30 seconds read/write timeout
+		"timeout":                 "60000000",            // 60 second initial connection timeout
 		"t":                       fmt.Sprintf("%.0f", duration.Seconds()),
-		"threads":                 "0",  // Use optimal thread count
-		"bufsize":                 "2M", // Increased buffer size
+		"user_agent":              "AudioLogger/1.0",
 	})
 
-	// Output with enhanced settings
+	// Output options for reliable recording
 	cmd := stream.Output(outputFile, ffmpeg.KwArgs{
-		"c":                 "copy",
-		"f":                 "mp3",
-		"y":                 "",
-		"avoid_negative_ts": "make_zero",
-		"copyts":            "",
-		"start_at_zero":     "",
+		"c":                 "copy",      // Copy codec without re-encoding
+		"f":                 "mp3",       // MP3 output format
+		"avoid_negative_ts": "make_zero", // Handle timing issues
+		"y":                 "",          // Overwrite output file
 	}).OverWriteOutput()
 
 	// Create a channel to handle FFmpeg completion
 	errorChan := make(chan error, 1)
 
 	go func() {
-		errorChan <- cmd.Run()
+		cmdErr := cmd.Run()
+		if cmdErr != nil {
+			// Log detailed FFmpeg error information
+			r.logger.Debug("ffmpeg command failed", "error", cmdErr, "stream_url", streamURL, "output_file", outputFile)
+		}
+		errorChan <- cmdErr
 	}()
 
 	// Wait for either completion or context cancellation
