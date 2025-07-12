@@ -1,40 +1,18 @@
 # ZuidWest FM Audio Logger
 
-A Go application for recording hourly audio streams and serving audio segments via HTTP API.
+A production-ready Go application for recording hourly audio streams and serving audio segments via HTTP API.
 
 ## Features
 
-- Continuous recording with hourly audio stream capture using cron scheduling
-- HTTP API for serving audio segments by time range with intelligent caching
-- Multi-stream support with per-stream configuration and bitrate detection
-- Metadata collection from broadcast APIs with JSON parsing
-- Dynamic bitrate detection from icecast streams
-- Structured logging with slog and station context
-- Graceful shutdown and comprehensive error handling
-- Configurable retention periods for recordings and cache
-
-## Key Technical Features
-
-### Bitrate Detection
-- Automatic detection from icecast headers (`icy-br`, `ice-audio-info`)
-- Fallback to MP3 frame analysis for non-compliant streams
-- Used for accurate file size validation with 20% tolerance
-
-### Time Format
-- Universal YYYY-MM-DD-HH format used throughout application
-- Consistent timezone handling (Europe/Amsterdam)
-- API responses use YYYY-MM-DD HH:MM format for display
-
-### Logging
-- Structured logging with Go's standard slog
-- Station context for easy filtering
-- Outputs to both file and console
-- Debug mode shows FFmpeg output and detailed operations
-
-### Error Handling
-- Retry logic with exponential backoff (3 attempts)
-- FFmpeg reconnection settings for network issues
-- Graceful degradation when metadata APIs are unavailable
+- **Continuous Recording**: Hourly audio stream capture using cron scheduling
+- **HTTP API**: Serve audio segments by time range with intelligent caching
+- **Multi-stream Support**: Per-stream configuration and automatic bitrate detection
+- **Metadata Collection**: Broadcast API integration with JSON parsing
+- **Dynamic Bitrate Detection**: Automatic detection from icecast streams
+- **Structured Logging**: Clean slog-based logging with station context
+- **Production Ready**: Graceful shutdown, error handling, and configurable retention
+- **Intelligent Caching**: Fast segment serving with automatic cache management
+- **Configurable Timezone**: Deploy anywhere with timezone-aware recording and API
 
 ## Prerequisites
 
@@ -79,8 +57,6 @@ nano streams.local.json
 ```
 
 ### Run Application
-
-**Start everything (recorder + HTTP server):**
 ```bash
 ./audiologger
 ```
@@ -93,9 +69,7 @@ This starts both the continuous recording service and HTTP API server. The appli
 
 ## Configuration
 
-### Configuration File Structure
-The `streams.json` file contains global settings and per-stream configuration:
-
+### Basic Configuration Example
 ```json
 {
   "recording_dir": "/var/audio",
@@ -152,9 +126,24 @@ The `streams.json` file contains global settings and per-stream configuration:
 | `keep_days` | ❌ | Override global retention period |
 | `record_duration` | ❌ | Recording duration (default: 1h) |
 
+### Timezone Configuration
+
+The application uses a single configurable timezone for all operations. Set the `timezone` field in your configuration to any valid IANA timezone identifier:
+
+- `Europe/Amsterdam` (Netherlands)
+- `America/New_York` (US Eastern)
+- `America/Los_Angeles` (US Pacific)
+- `Asia/Tokyo` (Japan)
+- `UTC` (Universal time)
+
+**How it works:**
+1. All recordings are named using your configured timezone
+2. API requests interpret timestamps as your configured timezone
+3. API responses return timestamps in your configured timezone
+4. No timezone conversion math needed - everything uses one timezone
+
 ## Directory Structure
 
-The application creates this structure:
 ```
 /var/audio/
 ├── zuidwest/
@@ -163,47 +152,6 @@ The application creates this structure:
 ├── cache/                    # Cached segments
 │   └── {hash}.mp3
 └── audiologger.log          # Application logs
-```
-
-## Production Deployment
-
-### Systemd Service
-Create `/etc/systemd/system/audiologger.service`:
-```ini
-[Unit]
-Description=ZuidWest FM Audio Logger - Unified Recording & API Service
-After=network.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=audiologger
-Group=audiologger
-WorkingDirectory=/opt/audiologger
-ExecStart=/usr/local/bin/audiologger -config /etc/audiologger/streams.json
-Restart=always
-RestartSec=10
-TimeoutStopSec=30
-
-# Environment
-Environment=TZ=Europe/Amsterdam
-
-# Security settings
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/audio /var/log/audiologger.log
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Enable and Start Service
-```bash
-sudo systemctl enable audiologger
-sudo systemctl start audiologger
-sudo systemctl status audiologger
 ```
 
 ## HTTP API
@@ -229,49 +177,6 @@ sudo systemctl status audiologger
 | `GET` | `/api/v1/system/cache` | Cache statistics |
 | `GET` | `/api/v1/system/stats` | System statistics |
 
-### Timezone Handling
-
-**Simple Rule: All times use the configured timezone.**
-
-The application records in a configurable timezone (default: Europe/Amsterdam) and treats all API requests as the same timezone. No timezone conversion needed - just use the time you want.
-
-#### Configuration
-
-Add timezone to your `streams.json`:
-
-```json
-{
-  "timezone": "Europe/Amsterdam",
-  "recording_dir": "/var/audio",
-  "streams": {...}
-}
-```
-
-**Common timezone examples:**
-- `"Europe/Amsterdam"` (default)
-- `"America/New_York"` 
-- `"America/Los_Angeles"`
-- `"Europe/London"`
-- `"Asia/Tokyo"`
-- `"UTC"`
-
-#### Usage
-
-```bash
-# Want audio from 14:30-14:35 in your configured timezone? Just request 14:30!
-curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-07-15T14:30:00&end=2024-07-15T14:35:00" -o segment.mp3
-
-# Timezone suffixes (Z, +01:00, etc.) are ignored - everything uses your configured timezone
-curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-07-15T14:30:00Z&end=2024-07-15T14:35:00Z" -o segment.mp3
-```
-
-**Key Points:**
-- Recordings are stored as `2024-07-15-14.mp3` (in your configured timezone)
-- API requests use the same configured timezone  
-- No timezone conversion math required
-- Timezone suffixes in requests are ignored
-- Default timezone is `Europe/Amsterdam` if not specified
-
 ### Example API Usage
 ```bash
 # Health and readiness checks
@@ -296,7 +201,7 @@ curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/down
 # Get metadata
 curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/metadata | jq
 
-# Get 5-minute audio segment (Amsterdam time)
+# Get 5-minute audio segment
 curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-01-15T14:30:00&end=2024-01-15T14:35:00" -o segment.mp3
 
 # System statistics
@@ -304,31 +209,24 @@ curl http://localhost:8080/api/v1/system/stats | jq
 curl http://localhost:8080/api/v1/system/cache | jq
 ```
 
-
 ## Docker Deployment
 
 ### Using Pre-built Container
-The application is available as a pre-built container from GitHub Container Registry:
-
 ```bash
 # Pull the latest image
 docker pull ghcr.io/oszuidwest/zwfm-audiologger:latest
 
-# Run with docker
+# Run with basic configuration
 docker run -d \
   --name audiologger \
   -p 8080:8080 \
   -v $(pwd)/data:/var/audio \
   -v $(pwd)/streams.json:/app/streams.json:ro \
   -v $(pwd)/logs:/var/log \
-  -e TZ=Europe/Amsterdam \
   ghcr.io/oszuidwest/zwfm-audiologger:latest
 ```
 
 ### Docker Compose (Recommended)
-
-The docker-compose.yml uses Docker named volumes for persistent data storage:
-
 ```bash
 # Start both recorder and API server
 docker-compose up -d
@@ -336,44 +234,49 @@ docker-compose up -d
 # View logs
 docker-compose logs -f
 
-# View data location
-docker volume inspect zwfm-audiologger_audiologger-data
-
 # Stop services
 docker-compose down
 
 # Update to latest version
 docker-compose pull && docker-compose up -d
-
-# Backup data
-docker run --rm -v zwfm-audiologger_audiologger-data:/data -v $(pwd):/backup alpine tar czf /backup/audiologger-backup.tar.gz /data
 ```
 
-**Alternative: Local bind mounts**
-If you prefer local directories for easier access:
-```yaml
-volumes:
-  - ./data:/var/audio          # Local data directory
-  - ./streams.json:/app/streams.json:ro
-  - ./logs:/var/log            # Local logs directory
+## Production Deployment
+
+### Systemd Service
+Create `/etc/systemd/system/audiologger.service`:
+```ini
+[Unit]
+Description=ZuidWest FM Audio Logger
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=audiologger
+Group=audiologger
+WorkingDirectory=/opt/audiologger
+ExecStart=/usr/local/bin/audiologger -config /etc/audiologger/streams.json
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/audio /var/log/audiologger.log
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-### Building from Source
-If you want to build the container yourself:
-```dockerfile
-FROM golang:1.24-alpine AS builder
-RUN apk add --no-cache git
-WORKDIR /app
-COPY . .
-RUN go build -o audiologger .
-
-FROM alpine:latest
-RUN apk add --no-cache ffmpeg ca-certificates tzdata jq
-WORKDIR /app
-COPY --from=builder /app/audiologger .
-COPY streams.json .
-EXPOSE 8080
-CMD ["./audiologger"]
+Enable and start:
+```bash
+sudo systemctl enable audiologger
+sudo systemctl start audiologger
+sudo systemctl status audiologger
 ```
 
 ## Monitoring and Debugging
@@ -403,14 +306,6 @@ curl http://localhost:8080/api/v1/system/cache | jq
 curl http://localhost:8080/api/v1/system/stats | jq
 ```
 
-### Performance Metrics
-- **Bitrate detection**: 1-2 seconds on startup per stream
-- **Segment extraction**: 100-300ms (first request)
-- **Cached segments**: 50-200ms (subsequent requests)  
-- **Cache hit ratio**: 70-90% for popular segments
-- **Recording validation**: Based on detected bitrate with ±20% tolerance
-- **Storage overhead**: ~5-10% with intelligent cleanup
-
 ## Development
 
 ### Build Commands
@@ -429,12 +324,6 @@ go test ./...
 
 # Install dependencies
 go mod download && go mod tidy
-```
-
-### Custom Configuration
-```bash
-# Use custom config file
-go run . -config custom-streams.json
 ```
 
 ### Code Quality
