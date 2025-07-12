@@ -141,4 +141,3 @@ func (c *Cache) GetCacheStats() map[string]interface{} {
 		"ttl_hours":        c.ttl.Hours(),
 	}
 }
-
