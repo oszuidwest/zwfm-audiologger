@@ -1,5 +1,5 @@
 {
-  "recording_dir": "/var/audio",
+  "recordings_directory": "/var/audio",
   "log_file": "/var/log/audiologger.log",
   "keep_days": 31,
   "debug": true,
@@ -9,10 +9,10 @@
     "read_timeout": "30s",
     "write_timeout": "30s",
     "shutdown_timeout": "10s",
-    "cache_dir": "/var/audio/cache",
+    "cache_directory": "/var/audio/cache",
     "cache_ttl": "24h"
   },
-  "streams": {
+  "stations": {
     "zuidwest": {
       "stream_url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
       "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",

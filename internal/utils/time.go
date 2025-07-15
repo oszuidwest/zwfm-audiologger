@@ -57,6 +57,15 @@ func ToAPIString(t time.Time, timezone string) string {
 	return t.In(GetAppTimezone(timezone)).Format("2006-01-02 15:04")
 }
 
+// ToAPIStringOrEmpty returns formatted time string or empty string for zero time
+// This prevents displaying "0001-01-01 00:17" when no recordings exist
+func ToAPIStringOrEmpty(t time.Time, timezone string) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.In(GetAppTimezone(timezone)).Format("2006-01-02 15:04")
+}
+
 // GetCurrentHour returns the current hour in UniversalFormat (YYYY-MM-DD-HH)
 // Truncates to hour boundary (sets minutes/seconds to 0) for consistent recording naming
 // Example: if current time is 14:37:23, returns "2024-01-15-14"

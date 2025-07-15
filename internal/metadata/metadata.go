@@ -29,34 +29,34 @@ func New(log *logger.Logger) *Fetcher {
 	}
 }
 
-func (f *Fetcher) Fetch(streamName string, stream config.Stream, streamDir, timestamp string) {
-	if stream.MetadataURL == "" {
-		f.logger.Debug("no metadata URL configured", "station", streamName)
+func (f *Fetcher) FetchMetadata(stationName string, station config.Station, stationDir, timestamp string) {
+	if station.MetadataURL == "" {
+		f.logger.Debug("no metadata URL configured", "station", stationName)
 		return
 	}
 
-	f.logger.Debug("fetching metadata", "station", streamName, "url", stream.MetadataURL, "parse", stream.ParseMetadata, "path", stream.MetadataJSONPath)
+	f.logger.Debug("fetching metadata", "station", stationName, "url", station.MetadataURL, "parse", station.ParseMetadata, "path", station.MetadataJSONPath)
 
-	programName := f.fetchProgramName(stream)
+	programName := f.fetchProgramName(station)
 	if programName == "" {
-		f.logger.Warn("no program name found, using fallback", "station", streamName)
+		f.logger.Warn("no program name found, using fallback", "station", stationName)
 		programName = "Unknown Program"
 	}
 
-	metaFile := filepath.Join(streamDir, timestamp+".meta")
+	metaFile := filepath.Join(stationDir, timestamp+".meta")
 	if err := os.WriteFile(metaFile, []byte(programName), 0644); err != nil {
-		f.logger.Error("failed to write metadata file", "station", streamName, "file", metaFile, "error", err)
+		f.logger.Error("failed to write metadata file", "station", stationName, "file", metaFile, "error", err)
 		return
 	}
 
-	f.logger.Info("stored metadata", "station", streamName, "timestamp", timestamp, "program", programName)
+	f.logger.Info("stored metadata", "station", stationName, "timestamp", timestamp, "program", programName)
 }
 
-func (f *Fetcher) fetchProgramName(stream config.Stream) string {
+func (f *Fetcher) fetchProgramName(station config.Station) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", stream.MetadataURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", station.MetadataURL, nil)
 	if err != nil {
 		f.logger.Error("failed to create metadata request", "error", err)
 		return ""
@@ -88,9 +88,9 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 
 	// Parse JSON response using gjson path syntax if configured
 	// Example: "program.title" extracts {"program": {"title": "Morning Show"}} -> "Morning Show"
-	if stream.ParseMetadata && stream.MetadataJSONPath != "" {
+	if station.ParseMetadata && station.MetadataJSONPath != "" {
 		// Remove leading dot from path for gjson compatibility
-		jsonPath := strings.TrimPrefix(stream.MetadataJSONPath, ".")
+		jsonPath := strings.TrimPrefix(station.MetadataJSONPath, ".")
 
 		f.logger.Debug(fmt.Sprintf("Parsing metadata with path '%s' from JSON: %s", jsonPath, bodyStr))
 
@@ -107,8 +107,8 @@ func (f *Fetcher) fetchProgramName(stream config.Stream) string {
 	return strings.TrimSpace(bodyStr)
 }
 
-func (f *Fetcher) GetMetadata(streamDir, timestamp string) (string, error) {
-	metaFile := filepath.Join(streamDir, timestamp+".meta")
+func (f *Fetcher) GetMetadata(stationDir, timestamp string) (string, error) {
+	metaFile := filepath.Join(stationDir, timestamp+".meta")
 
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
