@@ -1,3 +1,5 @@
+// Package server provides HTTP server functionality with Gin framework for serving
+// audio recordings, metadata, and API endpoints with caching and middleware support.
 package server
 
 import (
@@ -6,255 +8,575 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-contrib/cache"
+	"github.com/gin-contrib/cache/persistence"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-audiologger/internal/audio"
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
-	ffmpeg "github.com/u2takey/ffmpeg-go"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
+	ffmpeglib "github.com/u2takey/ffmpeg-go"
 )
 
-type Server struct {
+// AudioClipRequest represents the request parameters for generating audio clips
+// with start and end time specifications.
+type AudioClipRequest struct {
+	Start string `form:"start" json:"start" binding:"required"`
+	End   string `form:"end" json:"end" binding:"required"`
+}
+
+// RecordingInfo represents basic recording file information including timestamp,
+// size, and format details.
+type RecordingInfo struct {
+	Timestamp string
+	Size      int64
+	Format    audio.Format
+}
+
+// Global variables
+var startTime = time.Now()
+
+// GinServer represents the Gin-based HTTP server with configuration, logging,
+// and caching capabilities.
+type GinServer struct {
 	config   *config.Config
 	logger   *logger.Logger
 	metadata *metadata.Fetcher
-	server   *http.Server
-	cache    *Cache
+	ginCache persistence.CacheStore
+	engine   *gin.Engine
 }
 
-// validateStationExists checks if a station exists and writes error response if not
-// Returns true if station exists, false if not (and error response is written)
-func (s *Server) validateStationExists(w http.ResponseWriter, stationName string) bool {
-	if _, exists := s.config.Stations[stationName]; !exists {
-		s.writeAPIError(w, http.StatusNotFound, "Stream not found",
-			fmt.Sprintf("Stream '%s' does not exist", stationName))
-		return false
+// NewGinServer creates a new Gin-based server
+func NewGinServer(cfg *config.Config, log *logger.Logger) *GinServer {
+	// Set Gin mode based on debug setting
+	if !cfg.Debug {
+		gin.SetMode(gin.ReleaseMode)
 	}
-	return true
-}
 
-// validateRecordingExists checks if a recording exists and writes error response if not
-// Returns recording path if exists, empty string if not (and error response is written)
-func (s *Server) validateRecordingExists(w http.ResponseWriter, stationName, timestamp string) (string, bool) {
-	recordingPath := utils.RecordingPath(s.config.RecordingsDirectory, stationName, timestamp)
-	if !utils.FileExists(recordingPath) {
-		s.writeAPIError(w, http.StatusNotFound, "Recording not found",
-			fmt.Sprintf("Recording '%s' does not exist", timestamp))
-		return "", false
-	}
-	return recordingPath, true
-}
+	// Initialize in-memory cache store
+	ginCache := persistence.NewInMemoryStore(30 * time.Minute)
 
-// New returns a new Server with the provided configuration and logger.
-func New(cfg *config.Config, log *logger.Logger) *Server {
-	cache := NewCache(cfg.Server.CacheDirectory, time.Duration(cfg.Server.CacheTTL))
-
-	return &Server{
+	return &GinServer{
 		config:   cfg,
 		logger:   log,
 		metadata: metadata.New(log),
-		cache:    cache,
+		ginCache: ginCache,
+		engine:   gin.New(),
 	}
 }
 
-// Start initializes and starts the HTTP server.
-// It blocks until ctx is canceled, then performs graceful shutdown.
-func (s *Server) Start(ctx context.Context, port string) error {
-	if err := s.cache.Init(); err != nil {
-		return fmt.Errorf("failed to initialize cache: %w", err)
+// Start initializes and starts the Gin HTTP server
+func (s *GinServer) Start(ctx context.Context, port string) error {
+	if err := os.MkdirAll(s.config.Server.CacheDirectory, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", s.config.Server.CacheDirectory, err)
 	}
 
-	go s.startCacheCleanup(ctx)
-
-	router := mux.NewRouter()
-
-	router.Use(s.loggingMiddleware)
-	router.Use(s.corsMiddleware)
-
-	api := router.PathPrefix("/api/v1").Subrouter()
-
-	router.HandleFunc("/health", s.healthHandler).Methods("GET")
-	router.HandleFunc("/ready", s.readinessHandler).Methods("GET")
-
-	api.HandleFunc("/system/cache", s.cacheStatsHandler).Methods("GET")
-	api.HandleFunc("/system/stats", s.systemStatsHandler).Methods("GET")
-
-	api.HandleFunc("/stations", s.stationsHandler).Methods("GET")
-	api.HandleFunc("/stations/{station}", s.stationDetailsHandler).Methods("GET")
-
-	api.HandleFunc("/stations/{station}/recordings", s.recordingsHandler).Methods("GET")
-	api.HandleFunc("/stations/{station}/recordings/{timestamp}", s.recordingHandler).Methods("GET")
-	api.HandleFunc("/stations/{station}/recordings/{timestamp}/metadata", s.metadataHandler).Methods("GET")
-	api.HandleFunc("/stations/{station}/recordings/{timestamp}/download", s.downloadRecordingHandler).Methods("GET")
-
-	api.HandleFunc("/stations/{station}/segments", s.audioSegmentHandler).Methods("GET")
-
-	s.server = &http.Server{
+	s.setupRoutes()
+	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      router,
+		Handler:      s.engine,
 		ReadTimeout:  time.Duration(s.config.Server.ReadTimeout),
 		WriteTimeout: time.Duration(s.config.Server.WriteTimeout),
 	}
 
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("server failed to start", "error", err)
 			os.Exit(1)
 		}
 	}()
 
 	<-ctx.Done()
-
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(s.config.Server.ShutdownTimeout))
 	defer cancel()
-
-	return s.server.Shutdown(shutdownCtx)
+	return server.Shutdown(shutdownCtx)
 }
 
-// audioSegmentHandler handles requests for audio segments within a time range.
-func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	stationName := vars["station"]
+// setupRoutes configures all routes and middleware
+func (s *GinServer) setupRoutes() {
+	s.engine.Use(gin.Logger())
+	s.engine.Use(gin.Recovery())
+	s.engine.Use(s.customLoggingMiddleware())
+	s.engine.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
-	if !s.validateStationExists(w, stationName) {
-		return
+	// Health endpoints
+	s.engine.GET("/health", s.healthHandler)
+	s.engine.GET("/ready", s.readinessHandler)
+
+	// API v1 routes
+	v1 := s.engine.Group("/api/v1")
+	{
+		v1.GET("/system/stats", s.systemStatsHandler)
+
+		// Station endpoints
+		v1.GET("/stations", s.stationsHandler)
+		v1.GET("/stations/:station", s.stationDetailsHandler)
+
+		// Recording endpoints
+		v1.GET("/stations/:station/recordings", s.recordingsHandler)
+		v1.GET("/stations/:station/recordings/:timestamp", s.recordingHandler)
+		v1.GET("/stations/:station/recordings/:timestamp/play", s.playRecordingHandler)
+		v1.GET("/stations/:station/recordings/:timestamp/download", s.downloadRecordingHandler)
+		v1.GET("/stations/:station/recordings/:timestamp/metadata", s.metadataHandler)
+
+		// Audio clips (cached)
+		v1.GET("/stations/:station/clips",
+			cache.CachePage(s.ginCache, 1*time.Hour, s.audioClipHandler))
 	}
+}
 
-	startTimeStr := r.URL.Query().Get("start")
-	endTimeStr := r.URL.Query().Get("end")
-
-	if startTimeStr == "" || endTimeStr == "" {
-		s.writeAPIError(w, http.StatusBadRequest, "start and end parameters are required", "")
-		return
+// formatFileSize converts bytes to human-readable format
+func formatFileSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
 	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
 
-	startTime, err := utils.ParseTimestampAsTimezone(startTimeStr, s.config.Timezone)
+// getRecordingDuration uses audio.ProbeFile to get the actual duration of a recording file
+func (s *GinServer) getRecordingDuration(recordingPath string) (string, error) {
+	audioInfo, err := audio.ProbeFile(recordingPath)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "Invalid start time format", err.Error())
+		return "", err
+	}
+	return audioInfo.DurationString, nil
+}
+
+// Custom logging middleware
+func (s *GinServer) customLoggingMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+
+		c.Next()
+
+		latency := time.Since(start)
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+
+		if raw != "" {
+			path = path + "?" + raw
+		}
+
+		s.logger.HTTPRequest(method, path, statusCode, latency, "gin-request")
+	}
+}
+
+func (s *GinServer) validateStation(c *gin.Context, stationName string) bool {
+	if _, exists := s.config.Stations[stationName]; !exists {
+		s.apiError(c, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", stationName))
+		return false
+	}
+	return true
+}
+
+func (s *GinServer) validateRecordingExists(c *gin.Context, stationName, timestamp string) (string, audio.Format, bool) {
+	recordingPath, format, exists := utils.FindRecordingFile(s.config.RecordingsDirectory, stationName, timestamp)
+	if !exists {
+		s.apiError(c, http.StatusNotFound, "Recording not found", fmt.Sprintf("Recording '%s' does not exist", timestamp))
+		return "", audio.Format{}, false
+	}
+	return recordingPath, format, true
+}
+
+func (s *GinServer) apiResponse(c *gin.Context, status int, data interface{}, count int) {
+	c.JSON(status, gin.H{
+		"success": status < 400,
+		"data":    data,
+		"meta": gin.H{
+			"timestamp": time.Now(),
+			"version":   version.Version,
+			"count":     count,
+		},
+	})
+}
+
+func (s *GinServer) apiError(c *gin.Context, status int, message, details string) {
+	c.JSON(status, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    status,
+			"message": message,
+			"details": details,
+		},
+		"meta": gin.H{
+			"timestamp": time.Now(),
+			"version":   version.Version,
+		},
+	})
+}
+
+func (s *GinServer) healthHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "ok",
+		"timestamp": time.Now(),
+		"version":   version.Version,
+		"uptime":    time.Since(startTime).String(),
+	})
+}
+
+func (s *GinServer) readinessHandler(c *gin.Context) {
+	checks := []gin.H{
+		{"name": "cache", "status": "ok"},
+		{"name": "storage", "status": "ok"},
+	}
+
+	if _, err := os.Stat(s.config.RecordingsDirectory); os.IsNotExist(err) {
+		checks[1]["status"] = "error"
+		checks[1]["message"] = "Recording directory not accessible"
+	}
+
+	allReady := true
+	for _, check := range checks {
+		if check["status"] != "ok" {
+			allReady = false
+			break
+		}
+	}
+
+	status := http.StatusOK
+	if !allReady {
+		status = http.StatusServiceUnavailable
+	}
+
+	s.apiResponse(c, status, gin.H{
+		"ready":  allReady,
+		"checks": checks,
+	}, len(checks))
+}
+
+func (s *GinServer) stationsHandler(c *gin.Context) {
+	stations := make([]gin.H, 0, len(s.config.Stations))
+
+	for stationName, station := range s.config.Stations {
+		totalSize, lastSeen, recordingCount, _ := s.calculateStationStats(stationName)
+
+		stations = append(stations, gin.H{
+			"name":          stationName,
+			"url":           station.URL,
+			"status":        "active",
+			"last_recorded": utils.ToAPIStringOrEmpty(lastSeen, s.config.Timezone),
+			"recordings":    recordingCount,
+			"total_size":    totalSize,
+			"keep_days":     s.config.GetStationKeepDays(stationName),
+			"has_metadata":  station.MetadataURL != "",
+		})
+	}
+
+	s.apiResponse(c, http.StatusOK, gin.H{"stations": stations}, len(stations))
+}
+
+func (s *GinServer) stationDetailsHandler(c *gin.Context) {
+	stationName := c.Param("station")
+
+	if !s.validateStation(c, stationName) {
 		return
 	}
 
-	endTime, err := utils.ParseTimestampAsTimezone(endTimeStr, s.config.Timezone)
+	station := s.config.Stations[stationName]
+	totalSize, lastSeen, recordingCount, _ := s.calculateStationStats(stationName)
+
+	s.apiResponse(c, http.StatusOK, gin.H{
+		"name":          stationName,
+		"url":           station.URL,
+		"status":        "active",
+		"last_recorded": utils.ToAPIStringOrEmpty(lastSeen, s.config.Timezone),
+		"recordings":    recordingCount,
+		"total_size":    totalSize,
+		"keep_days":     s.config.GetStationKeepDays(stationName),
+		"has_metadata":  station.MetadataURL != "",
+	}, 1)
+}
+
+func (s *GinServer) recordingsHandler(c *gin.Context) {
+	stationName := c.Param("station")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	recordings, err := s.getRecordings(stationName)
 	if err != nil {
-		s.writeAPIError(w, http.StatusBadRequest, "Invalid end time format", err.Error())
+		s.logger.Error("failed to list recordings", "error", err)
+		s.apiError(c, http.StatusInternalServerError, "Failed to list recordings", err.Error())
+		return
+	}
+
+	recordingsResponse := make([]gin.H, len(recordings))
+	for i, recording := range recordings {
+		startTime, _ := utils.ParseTimestamp(recording.Timestamp, s.config.Timezone)
+		endTime := startTime.Add(time.Hour)
+		hasMetadata := s.hasMetadataForRecording(stationName, recording.Timestamp)
+
+		// Get actual duration from ffprobe
+		recordingPath, _, exists := utils.FindRecordingFile(s.config.RecordingsDirectory, stationName, recording.Timestamp)
+		duration := "unknown"
+		if exists {
+			if dur, err := s.getRecordingDuration(recordingPath); err == nil {
+				duration = dur
+			} else {
+				s.logger.Warn("failed to get recording duration", "path", recordingPath, "error", err)
+			}
+		}
+
+		recordingsResponse[i] = gin.H{
+			"timestamp":    recording.Timestamp,
+			"start_time":   utils.ToAPIString(startTime, s.config.Timezone),
+			"end_time":     utils.ToAPIString(endTime, s.config.Timezone),
+			"duration":     duration,
+			"size":         recording.Size,
+			"size_human":   formatFileSize(recording.Size),
+			"has_metadata": hasMetadata,
+			"urls":         s.buildRecordingURLs(stationName, recording.Timestamp, hasMetadata),
+		}
+	}
+
+	s.apiResponse(c, http.StatusOK, gin.H{
+		"recordings": recordingsResponse,
+		"station":    stationName,
+	}, len(recordingsResponse))
+}
+
+func (s *GinServer) recordingHandler(c *gin.Context) {
+	stationName := c.Param("station")
+	timestamp := c.Param("timestamp")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	recordingPath, _, exists := s.validateRecordingExists(c, stationName, timestamp)
+	if !exists {
+		return
+	}
+
+	stat, err := os.Stat(recordingPath)
+	if err != nil {
+		s.apiError(c, http.StatusInternalServerError, "Failed to get recording info", err.Error())
+		return
+	}
+
+	startTime, err := utils.ParseTimestamp(timestamp, s.config.Timezone)
+	if err != nil {
+		s.apiError(c, http.StatusBadRequest, "Invalid timestamp format", err.Error())
+		return
+	}
+	endTime := startTime.Add(time.Hour)
+
+	hasMetadata := s.hasMetadataForRecording(stationName, timestamp)
+
+	// Get actual duration from ffprobe
+	duration, err := s.getRecordingDuration(recordingPath)
+	if err != nil {
+		s.logger.Warn("failed to get recording duration", "path", recordingPath, "error", err)
+		duration = "unknown"
+	}
+
+	recording := gin.H{
+		"timestamp":    timestamp,
+		"start_time":   utils.ToAPIString(startTime, s.config.Timezone),
+		"end_time":     utils.ToAPIString(endTime, s.config.Timezone),
+		"duration":     duration,
+		"size":         stat.Size(),
+		"size_human":   formatFileSize(stat.Size()),
+		"has_metadata": hasMetadata,
+		"urls":         s.buildRecordingURLs(stationName, timestamp, hasMetadata),
+	}
+
+	if hasMetadata {
+		if metadata, err := s.metadata.GetMetadata(utils.StationDirectory(s.config.RecordingsDirectory, stationName), timestamp); err == nil {
+			recording["metadata"] = metadata
+		}
+	}
+
+	s.apiResponse(c, http.StatusOK, recording, 1)
+}
+
+func (s *GinServer) playRecordingHandler(c *gin.Context) {
+	stationName := c.Param("station")
+	timestamp := c.Param("timestamp")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	recordingPath, format, exists := s.validateRecordingExists(c, stationName, timestamp)
+	if !exists {
+		return
+	}
+
+	c.Header("Content-Type", format.MimeType)
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s_%s%s\"", stationName, timestamp, format.Extension))
+	c.File(recordingPath)
+}
+
+func (s *GinServer) downloadRecordingHandler(c *gin.Context) {
+	stationName := c.Param("station")
+	timestamp := c.Param("timestamp")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	recordingPath, format, exists := s.validateRecordingExists(c, stationName, timestamp)
+	if !exists {
+		return
+	}
+
+	c.Header("Content-Type", format.MimeType)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s%s\"", stationName, timestamp, format.Extension))
+	c.File(recordingPath)
+}
+
+func (s *GinServer) metadataHandler(c *gin.Context) {
+	stationName := c.Param("station")
+	timestamp := c.Param("timestamp")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	metadata, err := s.metadata.GetMetadata(utils.StationDirectory(s.config.RecordingsDirectory, stationName), timestamp)
+	if err != nil {
+		s.apiError(c, http.StatusNotFound, "Metadata not found", err.Error())
+		return
+	}
+
+	s.apiResponse(c, http.StatusOK, gin.H{
+		"station":    stationName,
+		"timestamp":  timestamp,
+		"metadata":   metadata,
+		"fetched_at": utils.ToAPIString(utils.NowInTimezone(s.config.Timezone), s.config.Timezone),
+	}, 1)
+}
+
+func (s *GinServer) audioClipHandler(c *gin.Context) {
+	stationName := c.Param("station")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	var req AudioClipRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		s.apiError(c, http.StatusBadRequest, "Invalid parameters", err.Error())
+		return
+	}
+
+	startTime, err := utils.ParseTimestampAsTimezone(req.Start, s.config.Timezone)
+	if err != nil {
+		s.apiError(c, http.StatusBadRequest, "Invalid start time format", err.Error())
+		return
+	}
+
+	endTime, err := utils.ParseTimestampAsTimezone(req.End, s.config.Timezone)
+	if err != nil {
+		s.apiError(c, http.StatusBadRequest, "Invalid end time format", err.Error())
 		return
 	}
 
 	if endTime.Before(startTime) || endTime.Equal(startTime) {
-		s.writeAPIError(w, http.StatusBadRequest, "End time must be after start time", "")
+		s.apiError(c, http.StatusBadRequest, "End time must be after start time", "")
 		return
 	}
 
-	segment, err := s.generateAudioSegmentFromHourlyRecording(stationName, startTime, endTime)
+	clip, clipFormat, err := s.generateAudioClipFromHourlyRecording(stationName, startTime, endTime)
 	if err != nil {
-		s.logger.Error("failed to generate audio segment", "error", err)
-		s.writeAPIError(w, http.StatusInternalServerError, "Failed to generate audio segment", err.Error())
+		s.logger.Error("failed to generate audio clip", "error", err)
+		s.apiError(c, http.StatusInternalServerError, "Failed to generate audio clip", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "audio/mpeg")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s_%s.mp3\"",
-		stationName, startTime.Format("2006-01-02-15-04-05"), endTime.Format("2006-01-02-15-04-05")))
-
-	http.ServeFile(w, r, segment)
+	c.Header("Content-Type", clipFormat.MimeType)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s_%s%s\"",
+		stationName, startTime.Format("2006-01-02-15-04-05"), endTime.Format("2006-01-02-15-04-05"), clipFormat.Extension))
+	c.File(clip)
 }
 
-// generateAudioSegmentFromHourlyRecording extracts audio segments from hourly recordings
-func (s *Server) generateAudioSegmentFromHourlyRecording(stationName string, startTime, endTime time.Time) (string, error) {
-	if cachedPath, found := s.cache.GetCachedSegment(stationName, s.config.Timezone, startTime, endTime); found {
-		s.logger.Debug("serving cached segment", "station", stationName)
-		return cachedPath, nil
+func (s *GinServer) systemStatsHandler(c *gin.Context) {
+	stationStats := make(map[string]gin.H)
+	totalRecordings := 0
+	totalSize := int64(0)
+
+	for stationName := range s.config.Stations {
+		streamSize, lastActive, recordingCount, _ := s.calculateStationStats(stationName)
+
+		stationStats[stationName] = gin.H{
+			"recordings":    recordingCount,
+			"size_bytes":    streamSize,
+			"last_recorded": lastActive,
+		}
+
+		totalRecordings += recordingCount
+		totalSize += streamSize
 	}
 
-	// Treat all request times as recording timezone (same as recordings)
-	// Simple: no timezone conversion, no standards confusion
-	loc, err := s.config.GetTimezone()
+	s.apiResponse(c, http.StatusOK, gin.H{
+		"uptime":           time.Since(startTime).String(),
+		"total_recordings": totalRecordings,
+		"total_size":       totalSize,
+		"station_stats":    stationStats,
+	}, 1)
+}
+
+// Helper functions (reuse from original implementation)
+func (s *GinServer) calculateStationStats(stationName string) (totalSize int64, lastSeen time.Time, recordingCount int, err error) {
+	recordings, err := s.getRecordings(stationName)
 	if err != nil {
-		s.logger.Error("failed to load timezone", "error", err)
-		loc = time.Local // Fallback to server timezone
+		return 0, time.Time{}, 0, err
 	}
-
-	// Parse times as Amsterdam time regardless of input timezone
-	startTimeLocal := time.Date(startTime.Year(), startTime.Month(), startTime.Day(),
-		startTime.Hour(), startTime.Minute(), startTime.Second(), startTime.Nanosecond(), loc)
-	endTimeLocal := time.Date(endTime.Year(), endTime.Month(), endTime.Day(),
-		endTime.Hour(), endTime.Minute(), endTime.Second(), endTime.Nanosecond(), loc)
-
-	s.logger.Debug("timezone handling", "start_time", utils.ToAPIString(startTime, s.config.Timezone), "end_time", utils.ToAPIString(endTime, s.config.Timezone))
-
-	// Find the recording hour by truncating to hour boundary (00:00 of that hour)
-	// Example: 2024-01-15 14:37:23 becomes 2024-01-15 14:00:00
-	recordingHour := time.Date(startTimeLocal.Year(), startTimeLocal.Month(), startTimeLocal.Day(), startTimeLocal.Hour(), 0, 0, 0, loc)
-	timestamp := utils.FormatTimestamp(recordingHour, s.config.Timezone)
-
-	s.logger.Debug("looking for recording", "timestamp", timestamp)
-
-	recordingPath := utils.RecordingPath(s.config.RecordingsDirectory, stationName, timestamp)
-
-	if !utils.FileExists(recordingPath) {
-		return "", fmt.Errorf("hourly recording not found for %s", timestamp)
+	if len(recordings) == 0 {
+		return 0, time.Time{}, 0, nil
 	}
-
-	// Calculate offset from start of hour and duration of requested segment
-	// Example: if recording starts at 14:00 and request is 14:15-14:45, offset=15m, duration=30m
-	offsetFromHour := startTimeLocal.Sub(recordingHour)
-	duration := endTimeLocal.Sub(startTimeLocal)
-
-	tempFile := filepath.Join(s.config.Server.CacheDirectory, fmt.Sprintf(".tmp_segment_%s_%d.mp3", stationName, time.Now().UnixNano()))
-
-	if err := s.extractSegment(recordingPath, tempFile, offsetFromHour, duration); err != nil {
-		return "", fmt.Errorf("failed to extract segment: %w", err)
-	}
-
-	cachedPath, err := s.cache.CacheSegment(stationName, s.config.Timezone, startTime, endTime, tempFile)
-	if err != nil {
-		s.logger.Warn("failed to cache segment", "error", err)
-		// Schedule cleanup for temp file since caching failed
-		go func() {
-			time.Sleep(10 * time.Second)
-			if err := os.Remove(tempFile); err != nil {
-				s.logger.Debug("failed to cleanup temporary segment file", "error", err)
+	for _, recording := range recordings {
+		totalSize += recording.Size
+		if t, err := utils.ParseTimestamp(recording.Timestamp, s.config.Timezone); err == nil {
+			if t.After(lastSeen) {
+				lastSeen = t
 			}
-		}()
-		return tempFile, nil
-	}
-
-	s.logger.Debug("generated and cached new segment", "station", stationName)
-	return cachedPath, nil
-}
-
-// startCacheCleanup runs a background goroutine that cleans up expired cache entries.
-func (s *Server) startCacheCleanup(ctx context.Context) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.cache.Cleanup()
-			s.logger.Debug("Cache cleanup completed")
 		}
 	}
+	return totalSize, lastSeen, len(recordings), nil
 }
 
-// cacheStatsHandler returns statistics about the segment cache.
-func (s *Server) cacheStatsHandler(w http.ResponseWriter, r *http.Request) {
-	stats := s.cache.GetCacheStats()
-	s.writeAPIResponse(w, http.StatusOK, stats, 1)
+func (s *GinServer) buildRecordingURLs(stationName, timestamp string, hasMetadata bool) gin.H {
+	baseURL := fmt.Sprintf("/api/v1/stations/%s/recordings/%s", stationName, timestamp)
+	urls := gin.H{
+		"download": baseURL + "/download",
+		"playback": baseURL + "/play",
+		"details":  baseURL,
+	}
+	if hasMetadata {
+		urls["metadata"] = baseURL + "/metadata"
+	}
+	return urls
 }
 
-type RecordingInfo struct {
-	Timestamp string
-	Size      int64
+func (s *GinServer) hasMetadataForRecording(stationName, timestamp string) bool {
+	metadataPath := utils.MetadataPath(s.config.RecordingsDirectory, stationName, timestamp)
+	return utils.FileExists(metadataPath)
 }
 
-// getRecordings returns information about all recordings for stationName.
-func (s *Server) getRecordings(stationName string) ([]RecordingInfo, error) {
+func (s *GinServer) getRecordings(stationName string) ([]RecordingInfo, error) {
 	stationDir := utils.StationDirectory(s.config.RecordingsDirectory, stationName)
 	var recordings []RecordingInfo
 
@@ -262,36 +584,71 @@ func (s *Server) getRecordings(stationName string) ([]RecordingInfo, error) {
 		if err != nil {
 			return err
 		}
-
-		if !info.IsDir() && strings.HasSuffix(path, ".mp3") {
-			timestamp := strings.TrimSuffix(filepath.Base(path), ".mp3")
+		if !info.IsDir() && utils.IsAudioFile(path) {
+			timestamp, format, err := utils.GetTimestampFromAudioFile(filepath.Base(path))
+			if err != nil {
+				// Skip files with unrecognized formats
+				return nil
+			}
 			recordings = append(recordings, RecordingInfo{
 				Timestamp: timestamp,
 				Size:      info.Size(),
+				Format:    format,
 			})
 		}
-
 		return nil
 	})
 
 	return recordings, err
 }
 
-// extractSegment uses FFmpeg to extract a time-range segment from a recording
-// Uses stream copy (no re-encoding) for fast, lossless extraction
-func (s *Server) extractSegment(inputFile, outputFile string, startOffset, duration time.Duration) error {
-	err := ffmpeg.Input(inputFile, ffmpeg.KwArgs{
-		"ss": utils.FormatDuration(startOffset), // Seek to start position
-		"t":  utils.FormatDuration(duration),    // Extract for specified duration
-	}).Output(outputFile, ffmpeg.KwArgs{
-		"c":                 "copy",      // Stream copy (no re-encoding)
-		"avoid_negative_ts": "make_zero", // Handle potential timestamp issues
-		"y":                 "",          // Overwrite output without asking
-	}).OverWriteOutput().Silent(true).Run()
-
+func (s *GinServer) generateAudioClipFromHourlyRecording(stationName string, startTime, endTime time.Time) (string, audio.Format, error) {
+	loc, err := s.config.GetTimezone()
 	if err != nil {
-		return fmt.Errorf("ffmpeg extraction failed: %w", err)
+		s.logger.Error("failed to load timezone", "error", err)
+		loc = time.Local
 	}
 
+	startTimeLocal := time.Date(startTime.Year(), startTime.Month(), startTime.Day(),
+		startTime.Hour(), startTime.Minute(), startTime.Second(), startTime.Nanosecond(), loc)
+	endTimeLocal := time.Date(endTime.Year(), endTime.Month(), endTime.Day(),
+		endTime.Hour(), endTime.Minute(), endTime.Second(), endTime.Nanosecond(), loc)
+
+	recordingHour := time.Date(startTimeLocal.Year(), startTimeLocal.Month(), startTimeLocal.Day(), startTimeLocal.Hour(), 0, 0, 0, loc)
+	timestamp := utils.FormatTimestamp(recordingHour, s.config.Timezone)
+	recordingPath, format, exists := utils.FindRecordingFile(s.config.RecordingsDirectory, stationName, timestamp)
+
+	if !exists {
+		return "", audio.Format{}, fmt.Errorf("hourly recording not found for %s", timestamp)
+	}
+
+	offsetFromHour := startTimeLocal.Sub(recordingHour)
+	duration := endTimeLocal.Sub(startTimeLocal)
+	tempFile := filepath.Join(s.config.Server.CacheDirectory, fmt.Sprintf("clip_%s_%d%s", stationName, time.Now().UnixNano(), format.Extension))
+
+	if err := s.extractClip(recordingPath, tempFile, offsetFromHour, duration); err != nil {
+		return "", audio.Format{}, fmt.Errorf("failed to extract clip: %w", err)
+	}
+
+	return tempFile, format, nil
+}
+
+func (s *GinServer) extractClip(inputFile, outputFile string, startOffset, duration time.Duration) error {
+	inputArgs := ffmpeglib.KwArgs{
+		"ss": utils.FormatDuration(startOffset),
+		"t":  utils.FormatDuration(duration),
+	}
+
+	outputArgs := ffmpeglib.KwArgs{
+		"c":                 "copy",
+		"avoid_negative_ts": "make_zero",
+		"y":                 "",
+	}
+
+	err := ffmpeglib.Input(inputFile, inputArgs).Output(outputFile, outputArgs).OverWriteOutput().Silent(true).Run()
+
+	if err != nil {
+		return fmt.Errorf("failed to ffmpeg extraction: %w", err)
+	}
 	return nil
 }

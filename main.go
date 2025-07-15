@@ -1,3 +1,5 @@
+// Package main provides the ZuidWest FM Audio Logger application that records
+// hourly audio segments from live icecast streams and serves them via HTTP API.
 package main
 
 import (
@@ -17,6 +19,9 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 )
 
+// main is the entry point for the ZuidWest FM Audio Logger application.
+// It handles command-line flags, initializes configuration and logging,
+// and starts both the recording service and HTTP server concurrently.
 func main() {
 	configFile := flag.String("config", "streams.json", "Path to configuration file")
 	testRecord := flag.Bool("test-record", false, "Run a single test recording and exit")
@@ -59,6 +64,7 @@ func main() {
 
 		if err := rec.RecordAll(ctx); err != nil {
 			log.Error("test recording failed", "error", err)
+			cancel()
 			os.Exit(1)
 		}
 
@@ -85,7 +91,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		srv := server.New(cfg, log)
+		srv := server.NewGinServer(cfg, log)
 		log.Info("starting HTTP server", "port", cfg.Server.Port)
 
 		if err := srv.Start(ctx, strconv.Itoa(cfg.Server.Port)); err != nil {

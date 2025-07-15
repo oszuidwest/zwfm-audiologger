@@ -1,3 +1,5 @@
+// Package config provides configuration management for the audio logger application
+// with JSON parsing, validation, and default value handling.
 package config
 
 import (
@@ -8,6 +10,8 @@ import (
 	"time"
 )
 
+// Config represents the main application configuration with stations, server settings,
+// and recording parameters.
 type Config struct {
 	RecordingsDirectory string             `json:"recordings_directory"`
 	LogFile             string             `json:"log_file"`
@@ -18,6 +22,8 @@ type Config struct {
 	Server              ServerConfig       `json:"server"`
 }
 
+// Station represents a radio station configuration with stream URL, metadata settings,
+// and recording parameters.
 type Station struct {
 	URL              string   `json:"stream_url"`
 	MetadataURL      string   `json:"metadata_url,omitempty"`
@@ -27,13 +33,11 @@ type Station struct {
 	RecordDuration   Duration `json:"record_duration,omitempty"`
 }
 
-// Duration wraps time.Duration to provide flexible JSON unmarshaling
-// Accepts both string formats ("1h", "30m") and numeric nanosecond values
+// Duration wraps time.Duration to support JSON parsing of string formats
+// like "1h" and "30m" as well as numeric nanosecond values.
 type Duration time.Duration
 
-// UnmarshalJSON implements custom JSON parsing for duration values
-// Supports: "1h", "30m", "45s" (string format) or raw nanoseconds (numeric)
-// This allows configuration flexibility: "record_duration": "1h" or "record_duration": 3600000000000
+// UnmarshalJSON parses duration strings ("1h", "30m") or raw nanosecond values.
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
 	if err := json.Unmarshal(b, &v); err != nil {
@@ -58,6 +62,8 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// ServerConfig contains HTTP server configuration including timeouts,
+// cache settings, and port configuration.
 type ServerConfig struct {
 	Port            int      `json:"port"`
 	ReadTimeout     Duration `json:"read_timeout"`

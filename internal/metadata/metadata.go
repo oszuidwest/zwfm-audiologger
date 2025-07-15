@@ -1,3 +1,5 @@
+// Package metadata provides functionality for fetching and managing program metadata
+// from radio station APIs using gjson for JSON parsing and structured storage.
 package metadata
 
 import (
@@ -16,6 +18,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// Fetcher retrieves program metadata from station APIs with configurable JSON parsing
+// and timeout handling for reliable metadata collection.
 type Fetcher struct {
 	logger *logger.Logger
 	client *http.Client
@@ -104,9 +108,8 @@ func (f *Fetcher) fetchProgramName(station config.Station) string {
 		if result.Exists() {
 			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
 			return result.String()
-		} else {
-			f.logger.Error("JSON path not found in response", "path", jsonPath)
 		}
+		f.logger.Error("JSON path not found in response", "path", jsonPath)
 	}
 
 	return strings.TrimSpace(bodyStr)

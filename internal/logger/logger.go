@@ -1,3 +1,5 @@
+// Package logger provides structured logging functionality using Go's standard
+// slog library with support for file and console output.
 package logger
 
 import (
@@ -9,6 +11,8 @@ import (
 	"time"
 )
 
+// Logger wraps slog.Logger with file handling and provides structured logging
+// methods for consistent log output formatting.
 type Logger struct {
 	slog *slog.Logger
 	file *os.File
@@ -73,12 +77,6 @@ func (l *Logger) Error(msg string, args ...any) {
 // Debug logs a message at DEBUG level with optional key-value pairs.
 func (l *Logger) Debug(msg string, args ...any) {
 	l.slog.Debug(msg, args...)
-}
-
-// Fatal logs a message at ERROR level and exits with code 1.
-func (l *Logger) Fatal(msg string, args ...any) {
-	l.slog.Error(msg, args...)
-	os.Exit(1)
 }
 
 // HTTPRequest logs HTTP request details with appropriate log levels based on status code.

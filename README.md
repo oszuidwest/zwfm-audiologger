@@ -1,16 +1,17 @@
 # ZuidWest FM Audio Logger
 
-A production-ready Go application for recording hourly audio streams and serving audio segments via HTTP API.
+A Go application for recording hourly audio streams and serving audio segments via HTTP API.
 
 ## Features
 
 - **Continuous Recording**: Hourly audio stream capture using cron scheduling
-- **HTTP API**: Serve audio segments by time range with intelligent caching
+- **Format-Agnostic Recording**: Automatic detection and support for MP3, AAC, and M4A streams
+- **HTTP API**: Serve audio segments by time range with caching
 - **Multi-stream Support**: Per-stream configuration and automatic bitrate detection
 - **Metadata Collection**: Broadcast API integration with JSON parsing
-- **Dynamic Bitrate Detection**: Automatic detection from icecast streams
-- **Structured Logging**: Clean slog-based logging with station context
-- **Intelligent Caching**: Fast segment serving with automatic cache management
+- **Dynamic Bitrate Detection**: ffprobe-based stream analysis with retry logic
+- **Structured Logging**: slog-based logging with station context
+- **Caching**: Segment serving with automatic cache management
 - **Configurable Timezone**: Deploy anywhere with timezone-aware recording and API
 
 ## Prerequisites
@@ -22,19 +23,14 @@ A production-ready Go application for recording hourly audio streams and serving
 
 ### Install Dependencies
 
-**macOS:**
 ```bash
+# macOS
 brew install ffmpeg go
-```
 
-**Ubuntu/Debian:**
-```bash
-sudo apt update
+# Ubuntu/Debian
 sudo apt install ffmpeg golang-go
-```
 
-**RHEL/CentOS:**
-```bash
+# RHEL/CentOS
 sudo yum install ffmpeg golang
 ```
 
@@ -49,10 +45,9 @@ go build -o audiologger .
 ```
 
 ### Configure Stations
-Copy and edit the configuration file:
 ```bash
 cp streams.json streams.local.json
-nano streams.local.json
+# Edit streams.local.json
 ```
 
 ### Run Application
@@ -60,11 +55,7 @@ nano streams.local.json
 ./audiologger
 ```
 
-This starts both the continuous recording service and HTTP API server. The application runs as a unified service with:
-- Cron-based hourly recording at minute 0 of each hour
-- HTTP API server on the configured port (default 8080)
-- Automatic bitrate detection for optimal recording validation
-- Structured logging with station context for easy monitoring
+Starts both recording service and HTTP API server.
 
 ## Configuration
 
@@ -119,7 +110,7 @@ This starts both the continuous recording service and HTTP API server. The appli
 ### Station Settings
 | Setting | Required | Description |
 |---------|----------|-------------|
-| `stream_url` | ✅ | Icecast livestream URL (bitrate auto-detected) |
+| `stream_url` | ✅ | Icecast livestream URL |
 | `metadata_url` | ❌ | Metadata API endpoint |
 | `metadata_path` | ❌ | gjson path for metadata extraction |
 | `parse_metadata` | ❌ | Enable JSON metadata parsing (true/false) |
@@ -128,30 +119,17 @@ This starts both the continuous recording service and HTTP API server. The appli
 
 ### Timezone Configuration
 
-The application uses a single configurable timezone for all operations. Set the `timezone` field in your configuration to any valid IANA timezone identifier:
-
-- `Europe/Amsterdam` (Netherlands)
-- `America/New_York` (US Eastern)
-- `America/Los_Angeles` (US Pacific)
-- `Asia/Tokyo` (Japan)
-- `UTC` (Universal time)
-
-**How it works:**
-1. All recordings are named using your configured timezone
-2. API requests interpret timestamps as your configured timezone
-3. API responses return timestamps in your configured timezone
-4. No timezone conversion math needed - everything uses one timezone
+Set the `timezone` field to any valid IANA timezone identifier (e.g., `Europe/Amsterdam`, `America/New_York`, `UTC`).
 
 ## Directory Structure
 
 ```
 /var/audio/
 ├── zuidwest/
-│   ├── 2024-01-15-14.mp3    # Audio recording
-│   └── 2024-01-15-14.meta   # Program metadata
-├── cache/                    # Cached segments
-│   └── {hash}.mp3
-└── audiologger.log          # Application logs
+│   ├── 2024-01-15-14.mp3
+│   └── 2024-01-15-14.meta
+└── cache/
+    └── {hash}.mp3
 ```
 
 ## HTTP API
@@ -159,54 +137,80 @@ The application uses a single configurable timezone for all operations. Set the 
 ### API Endpoints
 
 #### System Endpoints
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `GET` | `/ready` | Readiness check |
 
-#### API v1 Endpoints
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/stations` | List stations with details |
-| `GET` | `/api/v1/stations/{station}` | Get station details |
-| `GET` | `/api/v1/stations/{station}/recordings` | List recordings with metadata |
-| `GET` | `/api/v1/stations/{station}/recordings/{timestamp}` | Get recording info |
-| `GET` | `/api/v1/stations/{station}/recordings/{timestamp}/download` | Download recording |
-| `GET` | `/api/v1/stations/{station}/recordings/{timestamp}/metadata` | Get metadata |
-| `GET` | `/api/v1/stations/{station}/segments?start={timestamp}&end={timestamp}` | Get audio segment |
-| `GET` | `/api/v1/system/cache` | Cache statistics |
-| `GET` | `/api/v1/system/stats` | System statistics |
-
-### Example API Usage
+**Health Check**
 ```bash
-# Health and readiness checks
 curl http://localhost:8080/health
+# Returns: {"status":"ok","timestamp":"2025-07-16T00:12:44.951087639+02:00","uptime":"1m12.185542272s","version":"edge"}
+```
+
+**Readiness Check**
+```bash
 curl http://localhost:8080/ready
+# Returns: {"data":{"checks":[{"name":"cache","status":"ok"},{"name":"storage","status":"ok"}],"ready":true},"meta":{"count":2,"timestamp":"2025-07-16T00:12:49.107761699+02:00","version":"edge"},"success":true}
+```
 
-# List stations with detailed information
-curl http://localhost:8080/api/v1/stations | jq
-
-# Get specific station details
-curl http://localhost:8080/api/v1/stations/zuidwest | jq
-
-# List recordings with metadata
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings | jq
-
-# Get recording information
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2024-01-15-14 | jq
-
-# Download recording
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2024-01-15-14/download -o recording.mp3
-
-# Get metadata
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2024-01-15-14/metadata | jq
-
-# Get 5-minute audio segment
-curl "http://localhost:8080/api/v1/stations/zuidwest/segments?start=2024-01-15T14:30:00&end=2024-01-15T14:35:00" -o segment.mp3
-
-# System statistics
+**System Statistics**
+```bash
 curl http://localhost:8080/api/v1/system/stats | jq
-curl http://localhost:8080/api/v1/system/cache | jq
+# Returns: {"data":{"station_stats":{"zuidwest":{"last_recorded":"2025-07-16T00:00:00+02:00","recordings":10,"size_bytes":739178788}},"total_recordings":20,"total_size":1478357495,"uptime":"1m21.109119262s"},"meta":{"count":1,"timestamp":"2025-07-16T00:12:53.874669915+02:00","version":"edge"},"success":true}
+```
+
+#### Station Endpoints
+
+**List All Stations**
+```bash
+curl http://localhost:8080/api/v1/stations | jq
+# Returns: {"data":{"stations":[{"has_metadata":true,"keep_days":31,"last_recorded":"2025-07-16 00:00","name":"zuidwest","recordings":10,"status":"active","total_size":739178788,"url":"https://icecast.zuidwest.cloud/zuidwest.mp3"}]},"meta":{"count":2,"timestamp":"2025-07-16T00:13:00.072395708+02:00","version":"edge"},"success":true}
+```
+
+**Get Station Details**
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest | jq
+# Returns: {"data":{"has_metadata":true,"keep_days":31,"last_recorded":"2025-07-16 00:00","name":"zuidwest","recordings":10,"status":"active","total_size":739178788,"url":"https://icecast.zuidwest.cloud/zuidwest.mp3"},"meta":{"count":1,"timestamp":"2025-07-16T00:13:05.839317331+02:00","version":"edge"},"success":true}
+```
+
+#### Recording Endpoints
+
+**List Station Recordings**
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings | jq
+# Returns: {"data":{"recordings":[{"duration":"1h","end_time":"2025-07-15 16:00","has_metadata":true,"size":86400804,"size_human":"82.4 MB","start_time":"2025-07-15 15:00","timestamp":"2025-07-15-15","urls":{"details":"/api/v1/stations/zuidwest/recordings/2025-07-15-15","download":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/download","metadata":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata","playback":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/play"}}]},"meta":{"count":10,"timestamp":"2025-07-16T00:13:12.468589845+02:00","version":"edge"},"success":true}
+```
+
+**Get Recording Information**
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15 | jq
+# Returns: {"data":{"duration":"1h","end_time":"2025-07-15 16:00","has_metadata":true,"metadata":"Moor in de Middag","size":86400804,"size_human":"82.4 MB","start_time":"2025-07-15 15:00","timestamp":"2025-07-15-15","urls":{"details":"/api/v1/stations/zuidwest/recordings/2025-07-15-15","download":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/download","metadata":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata","playback":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/play"}},"meta":{"count":1,"timestamp":"2025-07-16T00:13:20.731968577+02:00","version":"edge"},"success":true}
+```
+
+**Play Recording (Stream)**
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play
+# Returns: Audio stream for direct playback
+```
+
+**Download Recording**
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/download -o recording.mp3
+# Downloads the complete recording file
+```
+
+**Get Recording Metadata**
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata | jq
+# Returns: {"data":{"fetched_at":"2025-07-16 00:13","metadata":"Moor in de Middag","station":"zuidwest","timestamp":"2025-07-15-15"},"meta":{"count":1,"timestamp":"2025-07-16T00:13:28.466867874+02:00","version":"edge"},"success":true}
+```
+
+#### Audio Clips
+
+**Extract Audio Clip**
+```bash
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00&end=2025-07-15T15:35:00" -o clip.mp3
+# Returns: 5-minute audio segment from 15:30 to 15:35
+
+# Also supports timezone offsets
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00+02:00&end=2025-07-15T15:35:00+02:00" -o clip.mp3
 ```
 
 ## Docker Deployment
@@ -226,19 +230,9 @@ docker run -d \
   ghcr.io/oszuidwest/zwfm-audiologger:latest
 ```
 
-### Docker Compose (Recommended)
+### Docker Compose
 ```bash
-# Start both recorder and API server
 docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-
-# Update to latest version
-docker-compose pull && docker-compose up -d
 ```
 
 ## Production Deployment
@@ -281,29 +275,13 @@ sudo systemctl status audiologger
 
 ## Monitoring and Debugging
 
-### Enable Debug Mode
-Set `"debug": true` in `streams.json` for detailed logging including:
-- FFmpeg command output and errors
-- Bitrate detection process details
-- Cache hit/miss information
-- Detailed HTTP request logging
+### Debug Mode
+Set `"debug": true` in `streams.json` for detailed logging.
 
 ### Log Monitoring
 ```bash
-# Follow logs in real-time
 tail -f /var/log/audiologger.log
-
-# Log format is structured text with key=value pairs
 grep "ERROR" /var/log/audiologger.log
-grep "station=zuidwest" /var/log/audiologger.log
-grep "bitrate_kbps" /var/log/audiologger.log
-
-# Monitor recording activities
-grep "recording started\|recording completed" /var/log/audiologger.log
-
-# Check cache and system performance
-curl http://localhost:8080/api/v1/system/cache | jq
-curl http://localhost:8080/api/v1/system/stats | jq
 ```
 
 ## Development
@@ -341,12 +319,12 @@ go test -cover ./...
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch (`git checkout -b feature/new-feature`)
 3. Make your changes
 4. Run tests (`go test ./...`)
 5. Run linter (`golangci-lint run`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
+6. Commit your changes (`git commit -m 'Add new feature'`)
+7. Push to the branch (`git push origin feature/new-feature`)
 8. Open a Pull Request
 
 ## License
