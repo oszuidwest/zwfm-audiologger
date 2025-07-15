@@ -217,7 +217,7 @@ func (s *Server) startCacheCleanup(ctx context.Context) {
 
 func (s *Server) cacheStatsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := s.cache.GetCacheStats()
-	s.writeJSON(w, http.StatusOK, stats)
+	s.writeAPIResponse(w, http.StatusOK, stats, 1)
 }
 
 type BasicRecording struct {
