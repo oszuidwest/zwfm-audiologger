@@ -23,6 +23,7 @@ type Cache struct {
 	entries map[string]*CacheEntry
 }
 
+// NewCache returns a new Cache with the specified directory and TTL.
 func NewCache(dir string, ttl time.Duration) *Cache {
 	return &Cache{
 		dir:     dir,
@@ -31,6 +32,7 @@ func NewCache(dir string, ttl time.Duration) *Cache {
 	}
 }
 
+// Init creates the cache directory if it doesn't exist.
 func (c *Cache) Init() error {
 	return os.MkdirAll(c.dir, 0755)
 }

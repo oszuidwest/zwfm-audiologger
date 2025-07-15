@@ -67,6 +67,7 @@ type ServerConfig struct {
 	CacheTTL        Duration `json:"cache_ttl"`
 }
 
+// Load reads and parses a JSON configuration file.
 func Load(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -81,6 +82,7 @@ func Load(filename string) (*Config, error) {
 	return config.validate()
 }
 
+// validate applies defaults and validates the configuration.
 func (c *Config) validate() (*Config, error) {
 	if c.RecordingsDirectory == "" {
 		c.RecordingsDirectory = filepath.Join(os.TempDir(), "audiologger")
@@ -129,6 +131,7 @@ func (c *Config) validate() (*Config, error) {
 	return c, nil
 }
 
+// GetStationKeepDays returns the retention period in days for stationName.
 func (c *Config) GetStationKeepDays(stationName string) int {
 	if station, exists := c.Stations[stationName]; exists && station.KeepDays > 0 {
 		return station.KeepDays
@@ -136,6 +139,7 @@ func (c *Config) GetStationKeepDays(stationName string) int {
 	return c.KeepDays
 }
 
+// GetTimezone returns the time.Location for the configured timezone.
 func (c *Config) GetTimezone() (*time.Location, error) {
 	return time.LoadLocation(c.Timezone)
 }

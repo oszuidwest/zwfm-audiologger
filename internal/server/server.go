@@ -48,6 +48,7 @@ func (s *Server) validateRecordingExists(w http.ResponseWriter, stationName, tim
 	return recordingPath, true
 }
 
+// New returns a new Server with the provided configuration and logger.
 func New(cfg *config.Config, log *logger.Logger) *Server {
 	cache := NewCache(cfg.Server.CacheDirectory, time.Duration(cfg.Server.CacheTTL))
 
@@ -59,6 +60,8 @@ func New(cfg *config.Config, log *logger.Logger) *Server {
 	}
 }
 
+// Start initializes and starts the HTTP server.
+// It blocks until ctx is canceled, then performs graceful shutdown.
 func (s *Server) Start(ctx context.Context, port string) error {
 	if err := s.cache.Init(); err != nil {
 		return fmt.Errorf("failed to initialize cache: %w", err)
@@ -111,6 +114,7 @@ func (s *Server) Start(ctx context.Context, port string) error {
 	return s.server.Shutdown(shutdownCtx)
 }
 
+// audioSegmentHandler handles requests for audio segments within a time range.
 func (s *Server) audioSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	stationName := vars["station"]
@@ -222,6 +226,7 @@ func (s *Server) generateAudioSegmentFromHourlyRecording(stationName string, sta
 	return cachedPath, nil
 }
 
+// startCacheCleanup runs a background goroutine that cleans up expired cache entries.
 func (s *Server) startCacheCleanup(ctx context.Context) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
@@ -237,6 +242,7 @@ func (s *Server) startCacheCleanup(ctx context.Context) {
 	}
 }
 
+// cacheStatsHandler returns statistics about the segment cache.
 func (s *Server) cacheStatsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := s.cache.GetCacheStats()
 	s.writeAPIResponse(w, http.StatusOK, stats, 1)
@@ -247,6 +253,7 @@ type RecordingInfo struct {
 	Size      int64
 }
 
+// getRecordings returns information about all recordings for stationName.
 func (s *Server) getRecordings(stationName string) ([]RecordingInfo, error) {
 	stationDir := utils.StationDirectory(s.config.RecordingsDirectory, stationName)
 	var recordings []RecordingInfo

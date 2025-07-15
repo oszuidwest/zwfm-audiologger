@@ -159,6 +159,7 @@ func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, detai
 
 var startTime = time.Now()
 
+// calculateStationStats computes statistics for stationName by scanning its recordings.
 func (s *Server) calculateStationStats(stationName string) (totalSize int64, lastSeen time.Time, recordingCount int, err error) {
 	recordings, err := s.getRecordings(stationName)
 	if err != nil {
@@ -216,6 +217,7 @@ func (s *Server) hasMetadataForRecording(stationName, timestamp string) bool {
 	return utils.FileExists(metadataPath)
 }
 
+// healthHandler provides basic health check endpoint.
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
 
@@ -227,6 +229,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// readinessHandler checks if the server is ready to serve requests.
 func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	checks := []Check{
 		{Name: "cache", Status: "ok"},
@@ -257,6 +260,7 @@ func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	}, len(checks))
 }
 
+// stationDetailsHandler returns detailed information about a specific station.
 func (s *Server) stationDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	stationName := vars["station"]
@@ -271,6 +275,7 @@ func (s *Server) stationDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, stationInfo, 1)
 }
 
+// recordingHandler returns information about a specific recording.
 func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	stationName := vars["station"]
@@ -314,6 +319,7 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, recording, 1)
 }
 
+// downloadRecordingHandler serves a complete recording file for download.
 func (s *Server) downloadRecordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	stationName := vars["station"]
@@ -334,6 +340,7 @@ func (s *Server) downloadRecordingHandler(w http.ResponseWriter, r *http.Request
 	http.ServeFile(w, r, recordingPath)
 }
 
+// systemStatsHandler returns comprehensive system statistics.
 func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
 
@@ -365,6 +372,7 @@ func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, stats, 1)
 }
 
+// stationsHandler returns a list of all configured stations with their statistics.
 func (s *Server) stationsHandler(w http.ResponseWriter, r *http.Request) {
 	stations := make([]StationInfo, 0, len(s.config.Stations))
 
@@ -376,6 +384,7 @@ func (s *Server) stationsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, StationsResponse{Stations: stations}, len(stations))
 }
 
+// recordingsHandler returns a list of all recordings for a specific station.
 func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	stationName := vars["station"]
@@ -418,6 +427,7 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, response, len(recordings))
 }
 
+// metadataHandler returns metadata for a specific recording.
 func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	stationName := vars["station"]
@@ -443,6 +453,7 @@ func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, response, 1)
 }
 
+// formatFileSize converts bytes to human-readable format (KB, MB, GB).
 func formatFileSize(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {

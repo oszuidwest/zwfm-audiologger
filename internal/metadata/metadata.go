@@ -20,6 +20,7 @@ type Fetcher struct {
 	client *http.Client
 }
 
+// New returns a new metadata Fetcher with a 15-second HTTP timeout.
 func New(log *logger.Logger) *Fetcher {
 	return &Fetcher{
 		logger: log,
@@ -29,6 +30,7 @@ func New(log *logger.Logger) *Fetcher {
 	}
 }
 
+// FetchMetadata retrieves program metadata for a recording and stores it as a .meta file.
 func (f *Fetcher) FetchMetadata(stationName string, station config.Station, stationDir, timestamp string) {
 	if station.MetadataURL == "" {
 		f.logger.Debug("no metadata URL configured", "station", stationName)
@@ -52,6 +54,7 @@ func (f *Fetcher) FetchMetadata(stationName string, station config.Station, stat
 	f.logger.Info("stored metadata", "station", stationName, "timestamp", timestamp, "program", programName)
 }
 
+// fetchProgramName retrieves the program name from a station's metadata API.
 func (f *Fetcher) fetchProgramName(station config.Station) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -107,6 +110,7 @@ func (f *Fetcher) fetchProgramName(station config.Station) string {
 	return strings.TrimSpace(bodyStr)
 }
 
+// GetMetadata reads a metadata file for the given timestamp.
 func (f *Fetcher) GetMetadata(stationDir, timestamp string) (string, error) {
 	metaFile := filepath.Join(stationDir, timestamp+".meta")
 

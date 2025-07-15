@@ -38,6 +38,7 @@ type Recorder struct {
 	mu       sync.RWMutex
 }
 
+// New returns a new Recorder with the provided configuration and logger.
 func New(cfg *config.Config, log *logger.Logger) *Recorder {
 	return &Recorder{
 		config:   cfg,
@@ -48,6 +49,8 @@ func New(cfg *config.Config, log *logger.Logger) *Recorder {
 	}
 }
 
+// StartCron starts the cron scheduler with hourly recording jobs.
+// It blocks until ctx is canceled.
 func (r *Recorder) StartCron(ctx context.Context) error {
 	// Cron pattern "0 * * * *" triggers at minute 0 of every hour
 	// This ensures recordings start precisely at hour boundaries (00:00, 01:00, etc.)
@@ -69,6 +72,7 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 	return nil
 }
 
+// RecordAll records audio from all configured stations concurrently.
 func (r *Recorder) RecordAll(ctx context.Context) error {
 	timestamp := utils.GetCurrentHour(r.config.Timezone)
 	if err := utils.EnsureDirectory(r.config.RecordingsDirectory); err != nil {
@@ -92,6 +96,7 @@ func (r *Recorder) RecordAll(ctx context.Context) error {
 	return nil
 }
 
+// recordAudioStream handles the complete recording process for a single station.
 func (r *Recorder) recordAudioStream(ctx context.Context, stationName string, station config.Station, timestamp string) error {
 	r.initStats(stationName)
 
@@ -375,6 +380,7 @@ func (r *Recorder) validateRecording(filePath string, expectedDuration time.Dura
 	return true
 }
 
+// initStats initializes recording statistics for stationName.
 func (r *Recorder) initStats(stationName string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -383,6 +389,7 @@ func (r *Recorder) initStats(stationName string) {
 	}
 }
 
+// updateStats safely updates recording statistics for stationName.
 func (r *Recorder) updateStats(stationName string, updateFunc func(*RecordingStats)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -391,6 +398,7 @@ func (r *Recorder) updateStats(stationName string, updateFunc func(*RecordingSta
 	}
 }
 
+// GetStats returns a copy of current recording statistics for all stations.
 func (r *Recorder) GetStats() map[string]RecordingStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -401,6 +409,7 @@ func (r *Recorder) GetStats() map[string]RecordingStats {
 	return result
 }
 
+// cleanupOldFiles removes files older than the configured retention period.
 func (r *Recorder) cleanupOldFiles(stationName, stationDir string) {
 	keepDays := r.config.GetStationKeepDays(stationName)
 
@@ -433,6 +442,7 @@ func (r *Recorder) cleanupOldFiles(stationName, stationDir string) {
 	}
 }
 
+// getStatsAttempts returns the number of recording attempts for stationName.
 func (r *Recorder) getStatsAttempts(stationName string) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
