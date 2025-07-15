@@ -88,7 +88,7 @@ func (c *Config) validate() (*Config, error) {
 		c.RecordingsDirectory = filepath.Join(os.TempDir(), "audiologger")
 	}
 	if c.LogFile == "" {
-		c.LogFile = filepath.Join(c.RecordingsDirectory, "audiologger.log")
+		c.LogFile = "/var/log/audiologger.log"
 	}
 	if c.KeepDays == 0 {
 		c.KeepDays = 7

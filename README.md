@@ -101,7 +101,7 @@ This starts both the continuous recording service and HTTP API server. The appli
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `recordings_directory` | `/tmp/audiologger` | Base directory for recordings |
-| `log_file` | `{recordings_directory}/audiologger.log` | Log file location |
+| `log_file` | `/var/log/audiologger.log` | Log file location |
 | `keep_days` | `7` | Default retention period (days) |
 | `debug` | `false` | Enable debug logging with FFmpeg output |
 | `timezone` | `Europe/Amsterdam` | Timezone for recordings and API |
