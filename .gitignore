@@ -54,3 +54,4 @@ config.local.json
 cache/
 *.mp3
 *.meta
+CLAUDE.md

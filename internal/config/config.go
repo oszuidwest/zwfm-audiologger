@@ -9,16 +9,16 @@ import (
 )
 
 type Config struct {
-	RecordingDir string            `json:"recording_dir"`
-	LogFile      string            `json:"log_file"`
-	KeepDays     int               `json:"keep_days"`
-	Debug        bool              `json:"debug"`
-	Timezone     string            `json:"timezone"`
-	Streams      map[string]Stream `json:"streams"`
-	Server       ServerConfig      `json:"server"`
+	RecordingsDirectory string             `json:"recordings_directory"`
+	LogFile             string             `json:"log_file"`
+	KeepDays            int                `json:"keep_days"`
+	Debug               bool               `json:"debug"`
+	Timezone            string             `json:"timezone"`
+	Stations            map[string]Station `json:"stations"`
+	Server              ServerConfig       `json:"server"`
 }
 
-type Stream struct {
+type Station struct {
 	URL              string   `json:"stream_url"`
 	MetadataURL      string   `json:"metadata_url,omitempty"`
 	MetadataJSONPath string   `json:"metadata_path,omitempty"`
@@ -63,10 +63,11 @@ type ServerConfig struct {
 	ReadTimeout     Duration `json:"read_timeout"`
 	WriteTimeout    Duration `json:"write_timeout"`
 	ShutdownTimeout Duration `json:"shutdown_timeout"`
-	CacheDir        string   `json:"cache_dir"`
+	CacheDirectory  string   `json:"cache_directory"`
 	CacheTTL        Duration `json:"cache_ttl"`
 }
 
+// Load reads and parses a JSON configuration file.
 func Load(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -81,12 +82,13 @@ func Load(filename string) (*Config, error) {
 	return config.validate()
 }
 
+// validate applies defaults and validates the configuration.
 func (c *Config) validate() (*Config, error) {
-	if c.RecordingDir == "" {
-		c.RecordingDir = filepath.Join(os.TempDir(), "audiologger")
+	if c.RecordingsDirectory == "" {
+		c.RecordingsDirectory = filepath.Join(os.TempDir(), "audiologger")
 	}
 	if c.LogFile == "" {
-		c.LogFile = filepath.Join(c.RecordingDir, "audiologger.log")
+		c.LogFile = "/var/log/audiologger.log"
 	}
 	if c.KeepDays == 0 {
 		c.KeepDays = 7
@@ -106,36 +108,38 @@ func (c *Config) validate() (*Config, error) {
 	if c.Server.ShutdownTimeout == 0 {
 		c.Server.ShutdownTimeout = Duration(10 * time.Second)
 	}
-	if c.Server.CacheDir == "" {
-		c.Server.CacheDir = filepath.Join(c.RecordingDir, "cache")
+	if c.Server.CacheDirectory == "" {
+		c.Server.CacheDirectory = filepath.Join(c.RecordingsDirectory, "cache")
 	}
 	if c.Server.CacheTTL == 0 {
 		c.Server.CacheTTL = Duration(24 * time.Hour)
 	}
 
-	for name, stream := range c.Streams {
-		if stream.URL == "" {
-			return nil, fmt.Errorf("stream_url is required for stream %s", name)
+	for name, station := range c.Stations {
+		if station.URL == "" {
+			return nil, fmt.Errorf("stream_url is required for station %s", name)
 		}
-		if stream.KeepDays == 0 {
-			stream.KeepDays = c.KeepDays
+		if station.KeepDays == 0 {
+			station.KeepDays = c.KeepDays
 		}
-		if stream.RecordDuration == 0 {
-			stream.RecordDuration = Duration(time.Hour)
+		if station.RecordDuration == 0 {
+			station.RecordDuration = Duration(time.Hour)
 		}
-		c.Streams[name] = stream
+		c.Stations[name] = station
 	}
 
 	return c, nil
 }
 
-func (c *Config) GetStreamKeepDays(streamName string) int {
-	if stream, exists := c.Streams[streamName]; exists && stream.KeepDays > 0 {
-		return stream.KeepDays
+// GetStationKeepDays returns the retention period in days for stationName.
+func (c *Config) GetStationKeepDays(stationName string) int {
+	if station, exists := c.Stations[stationName]; exists && station.KeepDays > 0 {
+		return station.KeepDays
 	}
 	return c.KeepDays
 }
 
+// GetTimezone returns the time.Location for the configured timezone.
 func (c *Config) GetTimezone() (*time.Location, error) {
 	return time.LoadLocation(c.Timezone)
 }

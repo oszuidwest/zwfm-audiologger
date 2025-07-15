@@ -14,6 +14,8 @@ type Logger struct {
 	file *os.File
 }
 
+// New returns a new Logger that writes to logFile and stdout.
+// If debug is true, the logger includes debug-level messages.
 func New(logFile string, debug bool) *Logger {
 	level := slog.LevelInfo
 	if debug {
@@ -45,6 +47,7 @@ func New(logFile string, debug bool) *Logger {
 	}
 }
 
+// Close closes the log file if one was opened.
 func (l *Logger) Close() error {
 	if l.file != nil {
 		return l.file.Close()
@@ -52,27 +55,33 @@ func (l *Logger) Close() error {
 	return nil
 }
 
+// Info logs a message at INFO level with optional key-value pairs.
 func (l *Logger) Info(msg string, args ...any) {
 	l.slog.Info(msg, args...)
 }
 
+// Warn logs a message at WARN level with optional key-value pairs.
 func (l *Logger) Warn(msg string, args ...any) {
 	l.slog.Warn(msg, args...)
 }
 
+// Error logs a message at ERROR level with optional key-value pairs.
 func (l *Logger) Error(msg string, args ...any) {
 	l.slog.Error(msg, args...)
 }
 
+// Debug logs a message at DEBUG level with optional key-value pairs.
 func (l *Logger) Debug(msg string, args ...any) {
 	l.slog.Debug(msg, args...)
 }
 
+// Fatal logs a message at ERROR level and exits with code 1.
 func (l *Logger) Fatal(msg string, args ...any) {
 	l.slog.Error(msg, args...)
 	os.Exit(1)
 }
 
+// HTTPRequest logs HTTP request details with appropriate log levels based on status code.
 func (l *Logger) HTTPRequest(method, path string, statusCode int, duration time.Duration, requestID string) {
 	level := slog.LevelInfo
 	if statusCode >= 400 {

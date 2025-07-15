@@ -48,7 +48,7 @@ go mod download
 go build -o audiologger .
 ```
 
-### Configure Streams
+### Configure Stations
 Copy and edit the configuration file:
 ```bash
 cp streams.json streams.local.json
@@ -71,7 +71,7 @@ This starts both the continuous recording service and HTTP API server. The appli
 ### Basic Configuration Example
 ```json
 {
-  "recording_dir": "/var/audio",
+  "recordings_directory": "/var/audio",
   "log_file": "/var/log/audiologger.log", 
   "keep_days": 31,
   "debug": false,
@@ -81,10 +81,10 @@ This starts both the continuous recording service and HTTP API server. The appli
     "read_timeout": "30s",
     "write_timeout": "30s", 
     "shutdown_timeout": "10s",
-    "cache_dir": "/var/audio/cache",
+    "cache_directory": "/var/audio/cache",
     "cache_ttl": "24h"
   },
-  "streams": {
+  "stations": {
     "zuidwest": {
       "stream_url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
       "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",
@@ -100,8 +100,8 @@ This starts both the continuous recording service and HTTP API server. The appli
 ### Global Settings
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `recording_dir` | `/tmp/audiologger` | Base directory for recordings |
-| `log_file` | `{recording_dir}/audiologger.log` | Log file location |
+| `recordings_directory` | `/tmp/audiologger` | Base directory for recordings |
+| `log_file` | `/var/log/audiologger.log` | Log file location |
 | `keep_days` | `7` | Default retention period (days) |
 | `debug` | `false` | Enable debug logging with FFmpeg output |
 | `timezone` | `Europe/Amsterdam` | Timezone for recordings and API |
@@ -112,13 +112,14 @@ This starts both the continuous recording service and HTTP API server. The appli
 | `port` | `8080` | HTTP server port |
 | `read_timeout` | `30s` | Request read timeout |
 | `write_timeout` | `30s` | Response write timeout |
-| `cache_dir` | `{recording_dir}/cache` | Cache directory |
+| `shutdown_timeout` | `10s` | Graceful shutdown timeout |
+| `cache_directory` | `{recordings_directory}/cache` | Cache directory |
 | `cache_ttl` | `24h` | Cache time-to-live |
 
-### Stream Settings
+### Station Settings
 | Setting | Required | Description |
 |---------|----------|-------------|
-| `stream_url` | ✅ | Icecast stream URL (bitrate auto-detected) |
+| `stream_url` | ✅ | Icecast livestream URL (bitrate auto-detected) |
 | `metadata_url` | ❌ | Metadata API endpoint |
 | `metadata_path` | ❌ | gjson path for metadata extraction |
 | `parse_metadata` | ❌ | Enable JSON metadata parsing (true/false) |
@@ -166,13 +167,13 @@ The application uses a single configurable timezone for all operations. Set the 
 #### API v1 Endpoints
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/v1/streams` | List streams with details |
-| `GET` | `/api/v1/streams/{stream}` | Get stream details |
-| `GET` | `/api/v1/streams/{stream}/recordings` | List recordings with metadata |
-| `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}` | Get recording info |
-| `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}/download` | Download recording |
-| `GET` | `/api/v1/streams/{stream}/recordings/{timestamp}/metadata` | Get metadata |
-| `GET` | `/api/v1/streams/{stream}/segments?start={timestamp}&end={timestamp}` | Get audio segment |
+| `GET` | `/api/v1/stations` | List stations with details |
+| `GET` | `/api/v1/stations/{station}` | Get station details |
+| `GET` | `/api/v1/stations/{station}/recordings` | List recordings with metadata |
+| `GET` | `/api/v1/stations/{station}/recordings/{timestamp}` | Get recording info |
+| `GET` | `/api/v1/stations/{station}/recordings/{timestamp}/download` | Download recording |
+| `GET` | `/api/v1/stations/{station}/recordings/{timestamp}/metadata` | Get metadata |
+| `GET` | `/api/v1/stations/{station}/segments?start={timestamp}&end={timestamp}` | Get audio segment |
 | `GET` | `/api/v1/system/cache` | Cache statistics |
 | `GET` | `/api/v1/system/stats` | System statistics |
 
@@ -182,26 +183,26 @@ The application uses a single configurable timezone for all operations. Set the 
 curl http://localhost:8080/health
 curl http://localhost:8080/ready
 
-# List streams with detailed information
-curl http://localhost:8080/api/v1/streams | jq
+# List stations with detailed information
+curl http://localhost:8080/api/v1/stations | jq
 
-# Get specific stream details
-curl http://localhost:8080/api/v1/streams/zuidwest | jq
+# Get specific station details
+curl http://localhost:8080/api/v1/stations/zuidwest | jq
 
 # List recordings with metadata
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings | jq
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings | jq
 
 # Get recording information
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14 | jq
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2024-01-15-14 | jq
 
 # Download recording
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/download -o recording.mp3
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2024-01-15-14/download -o recording.mp3
 
 # Get metadata
-curl http://localhost:8080/api/v1/streams/zuidwest/recordings/2024-01-15-14/metadata | jq
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2024-01-15-14/metadata | jq
 
 # Get 5-minute audio segment
-curl "http://localhost:8080/api/v1/streams/zuidwest/segments?start=2024-01-15T14:30:00&end=2024-01-15T14:35:00" -o segment.mp3
+curl "http://localhost:8080/api/v1/stations/zuidwest/segments?start=2024-01-15T14:30:00&end=2024-01-15T14:35:00" -o segment.mp3
 
 # System statistics
 curl http://localhost:8080/api/v1/system/stats | jq

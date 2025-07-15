@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 	"github.com/robfig/cron/v3"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
@@ -38,6 +39,7 @@ type Recorder struct {
 	mu       sync.RWMutex
 }
 
+// New returns a new Recorder with the provided configuration and logger.
 func New(cfg *config.Config, log *logger.Logger) *Recorder {
 	return &Recorder{
 		config:   cfg,
@@ -48,6 +50,8 @@ func New(cfg *config.Config, log *logger.Logger) *Recorder {
 	}
 }
 
+// StartCron starts the cron scheduler with hourly recording jobs.
+// It blocks until ctx is canceled.
 func (r *Recorder) StartCron(ctx context.Context) error {
 	// Cron pattern "0 * * * *" triggers at minute 0 of every hour
 	// This ensures recordings start precisely at hour boundaries (00:00, 01:00, etc.)
@@ -69,81 +73,83 @@ func (r *Recorder) StartCron(ctx context.Context) error {
 	return nil
 }
 
+// RecordAll records audio from all configured stations concurrently.
 func (r *Recorder) RecordAll(ctx context.Context) error {
 	timestamp := utils.GetCurrentHour(r.config.Timezone)
-	if err := utils.EnsureDir(r.config.RecordingDir); err != nil {
+	if err := utils.EnsureDirectory(r.config.RecordingsDirectory); err != nil {
 		return fmt.Errorf("failed to create recording directory: %w", err)
 	}
 
 	var wg sync.WaitGroup
 
-	for streamName, stream := range r.config.Streams {
+	for stationName, station := range r.config.Stations {
 		wg.Add(1)
-		go func(name string, s config.Stream) {
+		go func(name string, s config.Station) {
 			defer wg.Done()
 
-			if err := r.recordStream(ctx, name, s, timestamp); err != nil {
+			if err := r.recordAudioStream(ctx, name, s, timestamp); err != nil {
 				r.logger.Error("recording failed", "station", name, "error", err)
 			}
-		}(streamName, stream)
+		}(stationName, station)
 	}
 
 	wg.Wait()
 	return nil
 }
 
-func (r *Recorder) recordStream(ctx context.Context, streamName string, stream config.Stream, timestamp string) error {
-	r.initStats(streamName)
+// recordAudioStream handles the complete recording process for a single station.
+func (r *Recorder) recordAudioStream(ctx context.Context, stationName string, station config.Station, timestamp string) error {
+	r.initStats(stationName)
 
-	bitrate, err := r.preflightChecks(ctx, streamName, stream)
+	bitrate, err := r.validateStreamConnection(ctx, stationName, station)
 	if err != nil {
-		r.updateStats(streamName, func(s *RecordingStats) {
+		r.updateStats(stationName, func(s *RecordingStats) {
 			s.LastError = err
 		})
 		return fmt.Errorf("preflight checks failed: %w", err)
 	}
 
-	r.updateStats(streamName, func(s *RecordingStats) {
+	r.updateStats(stationName, func(s *RecordingStats) {
 		s.DetectedBitrate = bitrate
 	})
 
-	streamDir := utils.StreamDir(r.config.RecordingDir, streamName)
-	if err := utils.EnsureDir(streamDir); err != nil {
-		return fmt.Errorf("failed to create stream directory: %w", err)
+	stationDir := utils.StationDirectory(r.config.RecordingsDirectory, stationName)
+	if err := utils.EnsureDirectory(stationDir); err != nil {
+		return fmt.Errorf("failed to create station directory: %w", err)
 	}
 
-	go r.cleanupOldFiles(streamName, streamDir)
+	go r.cleanupOldFiles(stationName, stationDir)
 
-	outputFile := utils.RecordingPath(r.config.RecordingDir, streamName, timestamp)
+	outputFile := utils.RecordingPath(r.config.RecordingsDirectory, stationName, timestamp)
 
 	// Check if recording already exists and is valid
 	if utils.FileExists(outputFile) {
-		if r.validateRecording(outputFile, time.Duration(stream.RecordDuration), bitrate) {
-			r.logger.Info("recording already exists", "station", streamName, "timestamp", timestamp)
+		if r.validateRecording(outputFile, time.Duration(station.RecordDuration), bitrate) {
+			r.logger.Info("recording already exists", "station", stationName, "timestamp", timestamp)
 			return nil
 		}
-		r.logger.Warn("incomplete recording exists, will retry", "station", streamName, "timestamp", timestamp)
+		r.logger.Warn("incomplete recording exists, will retry", "station", stationName, "timestamp", timestamp)
 		if err := os.Remove(outputFile); err != nil {
-			r.logger.Error("failed to remove incomplete file", "station", streamName, "file", outputFile, "error", err)
+			r.logger.Error("failed to remove incomplete file", "station", stationName, "file", outputFile, "error", err)
 		}
 	}
 
-	go r.metadata.Fetch(streamName, stream, streamDir, timestamp)
+	go r.metadata.FetchMetadata(stationName, station, stationDir, timestamp)
 
-	r.logger.Info("recording started", "station", streamName, "timestamp", timestamp, "bitrate_kbps", bitrate, "duration", time.Duration(stream.RecordDuration).String())
+	r.logger.Info("recording started", "station", stationName, "timestamp", timestamp, "bitrate_kbps", bitrate, "duration", time.Duration(station.RecordDuration).String())
 
-	if err := r.recordWithRetry(ctx, stream.URL, outputFile, time.Duration(stream.RecordDuration), streamName); err != nil {
-		r.updateStats(streamName, func(s *RecordingStats) {
+	if err := r.recordWithRetry(ctx, station.URL, outputFile, time.Duration(station.RecordDuration), stationName); err != nil {
+		r.updateStats(stationName, func(s *RecordingStats) {
 			s.LastError = err
 		})
-		attempts := r.getStatsAttempts(streamName)
-		r.logger.Error("recording failed", "station", streamName, "timestamp", timestamp, "attempts", attempts, "error", err)
+		attempts := r.getStatsAttempts(stationName)
+		r.logger.Error("recording failed", "station", stationName, "timestamp", timestamp, "attempts", attempts, "error", err)
 		return fmt.Errorf("recording failed after retries: %w", err)
 	}
 
-	if !r.validateRecording(outputFile, time.Duration(stream.RecordDuration), bitrate) {
+	if !r.validateRecording(outputFile, time.Duration(station.RecordDuration), bitrate) {
 		err := fmt.Errorf("recording validation failed")
-		r.updateStats(streamName, func(s *RecordingStats) {
+		r.updateStats(stationName, func(s *RecordingStats) {
 			s.LastError = err
 		})
 		return err
@@ -155,18 +161,18 @@ func (r *Recorder) recordStream(ctx context.Context, streamName string, stream c
 		fileSize = fileInfo.Size()
 	}
 
-	r.logger.Info("recording completed", "station", streamName, "timestamp", timestamp, "file_size", fileSize, "duration", time.Duration(stream.RecordDuration).String())
+	r.logger.Info("recording completed", "station", stationName, "timestamp", timestamp, "file_size", fileSize, "duration", time.Duration(station.RecordDuration).String())
 	return nil
 }
 
-func (r *Recorder) preflightChecks(ctx context.Context, streamName string, stream config.Stream) (int, error) {
-	bitrate, err := r.detectStreamBitrate(stream.URL)
+func (r *Recorder) validateStreamConnection(ctx context.Context, stationName string, station config.Station) (int, error) {
+	bitrate, err := r.detectStreamBitrate(station.URL)
 	if err != nil {
-		r.logger.Warn("bitrate detection failed, stream may be inaccessible", "station", streamName, "stream_url", stream.URL, "error", err)
-		r.logger.Info("using default bitrate for recording attempt", "station", streamName, "default_kbps", 128)
+		r.logger.Warn("bitrate detection failed, station may be inaccessible", "station", stationName, "stream_url", station.URL, "error", err)
+		r.logger.Info("using default bitrate for recording attempt", "station", stationName, "default_kbps", 128)
 		bitrate = 128 // Fallback when detection fails
 	} else {
-		r.logger.Info("bitrate detected", "station", streamName, "method", "icecast-headers", "bitrate_kbps", bitrate, "stream_url", stream.URL)
+		r.logger.Info("bitrate detected", "station", stationName, "method", "icecast-headers", "bitrate_kbps", bitrate, "stream_url", station.URL)
 	}
 
 	return bitrate, nil
@@ -174,38 +180,38 @@ func (r *Recorder) preflightChecks(ctx context.Context, streamName string, strea
 
 // recordWithRetry implements exponential backoff retry pattern for robust recording
 // Retries up to 3 times with delays of 5s, 10s, 15s to handle transient network issues
-func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile string, duration time.Duration, streamName string) error {
+func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile string, duration time.Duration, stationName string) error {
 	maxRetries := 3
 	baseDelay := 5 * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		r.updateStats(streamName, func(s *RecordingStats) {
+		r.updateStats(stationName, func(s *RecordingStats) {
 			s.Attempts = attempt
 		})
 
-		r.logger.Info("recording attempt", "station", streamName, "attempt", attempt, "max_attempts", maxRetries)
+		r.logger.Info("recording attempt", "station", stationName, "attempt", attempt, "max_attempts", maxRetries)
 
 		// Adaptive timeout: base recording duration + (attempt * 30s)
 		// Gives more time for subsequent attempts to handle slow connections
 		timeoutMultiplier := time.Duration(attempt)
 		recordingCtx, cancel := context.WithTimeout(ctx, duration+(timeoutMultiplier*30*time.Second))
 
-		err := r.startFFmpegWithContext(recordingCtx, streamURL, outputFile, duration)
+		err := r.startAudioRecording(recordingCtx, streamURL, outputFile, duration)
 		cancel()
 
 		if err == nil {
-			r.logger.Info("recording attempt successful", "station", streamName, "attempt", attempt)
+			r.logger.Info("recording attempt successful", "station", stationName, "attempt", attempt)
 			return nil
 		}
 
-		r.logger.Warn("recording attempt failed", "station", streamName, "attempt", attempt, "error", err, "stream_url", streamURL)
-		r.updateStats(streamName, func(s *RecordingStats) {
+		r.logger.Warn("recording attempt failed", "station", stationName, "attempt", attempt, "error", err, "stream_url", streamURL)
+		r.updateStats(stationName, func(s *RecordingStats) {
 			s.LastError = err
 		})
 		if attempt < maxRetries {
 			// Exponential backoff: 5s, 10s, 15s delays between attempts
 			retryDelay := baseDelay * time.Duration(attempt)
-			r.logger.Info("waiting before retry", "station", streamName, "delay", retryDelay)
+			r.logger.Info("waiting before retry", "station", stationName, "delay", retryDelay)
 			select {
 			case <-time.After(retryDelay):
 			case <-ctx.Done():
@@ -217,8 +223,8 @@ func (r *Recorder) recordWithRetry(ctx context.Context, streamURL, outputFile st
 	return fmt.Errorf("all recording attempts failed")
 }
 
-// startFFmpegWithContext configures FFmpeg with resilient settings for icecast streams
-func (r *Recorder) startFFmpegWithContext(ctx context.Context, streamURL, outputFile string, duration time.Duration) error {
+// startAudioRecording configures FFmpeg with resilient settings for icecast streams
+func (r *Recorder) startAudioRecording(ctx context.Context, streamURL, outputFile string, duration time.Duration) error {
 	stream := ffmpeg.Input(streamURL, ffmpeg.KwArgs{
 		"reconnect":               "1",                                     // Enable automatic reconnection
 		"reconnect_at_eof":        "1",                                     // Reconnect when stream ends unexpectedly
@@ -228,7 +234,7 @@ func (r *Recorder) startFFmpegWithContext(ctx context.Context, streamURL, output
 		"rw_timeout":              "30000000",                              // 30s read/write timeout (microseconds)
 		"timeout":                 "60000000",                              // 60s overall timeout (microseconds)
 		"t":                       fmt.Sprintf("%.0f", duration.Seconds()), // Recording duration
-		"user_agent":              "AudioLogger/1.0",                       // Identify as audio logger
+		"user_agent":              version.UserAgent(),                     // Identify as audio logger
 	})
 
 	cmd := stream.Output(outputFile, ffmpeg.KwArgs{
@@ -274,13 +280,13 @@ func (r *Recorder) detectStreamBitrate(streamURL string) (int, error) {
 	// Icy-MetaData=1 requests icecast server to include metadata headers
 	// These headers often contain bitrate information
 	req.Header.Set("Icy-MetaData", "1")
-	req.Header.Set("User-Agent", "AudioLogger/1.0")
+	req.Header.Set("User-Agent", version.UserAgent())
 	req.Header.Set("Accept", "audio/mpeg, audio/*")
 
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("stream connection failed: %w", err)
+		return 0, fmt.Errorf("station connection failed: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -375,22 +381,25 @@ func (r *Recorder) validateRecording(filePath string, expectedDuration time.Dura
 	return true
 }
 
-func (r *Recorder) initStats(streamName string) {
+// initStats initializes recording statistics for stationName.
+func (r *Recorder) initStats(stationName string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.stats[streamName] = &RecordingStats{
+	r.stats[stationName] = &RecordingStats{
 		StartTime: time.Now(),
 	}
 }
 
-func (r *Recorder) updateStats(streamName string, updateFunc func(*RecordingStats)) {
+// updateStats safely updates recording statistics for stationName.
+func (r *Recorder) updateStats(stationName string, updateFunc func(*RecordingStats)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if stats, exists := r.stats[streamName]; exists {
+	if stats, exists := r.stats[stationName]; exists {
 		updateFunc(stats)
 	}
 }
 
+// GetStats returns a copy of current recording statistics for all stations.
 func (r *Recorder) GetStats() map[string]RecordingStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -401,12 +410,13 @@ func (r *Recorder) GetStats() map[string]RecordingStats {
 	return result
 }
 
-func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
-	keepDays := r.config.GetStreamKeepDays(streamName)
+// cleanupOldFiles removes files older than the configured retention period.
+func (r *Recorder) cleanupOldFiles(stationName, stationDir string) {
+	keepDays := r.config.GetStationKeepDays(stationName)
 
 	cutoff := time.Now().AddDate(0, 0, -keepDays)
 
-	err := filepath.Walk(streamDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(stationDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -417,9 +427,9 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 
 		if info.ModTime().Before(cutoff) {
 			if err := os.Remove(path); err != nil {
-				r.logger.Warn("failed to remove old file", "station", streamName, "file", path, "error", err)
+				r.logger.Warn("failed to remove old file", "station", stationName, "file", path, "error", err)
 			} else {
-				r.logger.Debug("removed old file", "station", streamName, "file", path)
+				r.logger.Debug("removed old file", "station", stationName, "file", path)
 			}
 		}
 
@@ -427,16 +437,17 @@ func (r *Recorder) cleanupOldFiles(streamName, streamDir string) {
 	})
 
 	if err != nil {
-		r.logger.Error("cleanup failed", "station", streamName, "error", err)
+		r.logger.Error("cleanup failed", "station", stationName, "error", err)
 	} else {
-		r.logger.Info("cleanup completed", "station", streamName)
+		r.logger.Info("cleanup completed", "station", stationName)
 	}
 }
 
-func (r *Recorder) getStatsAttempts(streamName string) int {
+// getStatsAttempts returns the number of recording attempts for stationName.
+func (r *Recorder) getStatsAttempts(stationName string) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if stats, exists := r.stats[streamName]; exists {
+	if stats, exists := r.stats[stationName]; exists {
 		return stats.Attempts
 	}
 	return 0

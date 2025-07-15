@@ -28,10 +28,12 @@ func GetAppTimezone(timezone string) *time.Location {
 	return loc
 }
 
+// NowInTimezone returns the current time in the specified timezone.
 func NowInTimezone(timezone string) time.Time {
 	return time.Now().In(GetAppTimezone(timezone))
 }
 
+// FormatDuration formats a duration as HH:MM:SS.mmm.
 func FormatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
@@ -41,10 +43,12 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
 }
 
+// FormatTimestamp formats t as YYYY-MM-DD-HH in the specified timezone.
 func FormatTimestamp(t time.Time, timezone string) string {
 	return t.In(GetAppTimezone(timezone)).Format(UniversalFormat)
 }
 
+// ParseTimestamp parses a YYYY-MM-DD-HH timestamp into a time.Time.
 func ParseTimestamp(timestamp string, timezone string) (time.Time, error) {
 	t, err := time.Parse(UniversalFormat, timestamp)
 	if err != nil {
@@ -53,7 +57,17 @@ func ParseTimestamp(timestamp string, timezone string) (time.Time, error) {
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, GetAppTimezone(timezone)), nil
 }
 
+// ToAPIString formats t as YYYY-MM-DD HH:MM for API responses.
 func ToAPIString(t time.Time, timezone string) string {
+	return t.In(GetAppTimezone(timezone)).Format("2006-01-02 15:04")
+}
+
+// ToAPIStringOrEmpty returns formatted time string or empty string for zero time
+// This prevents displaying "0001-01-01 00:17" when no recordings exist
+func ToAPIStringOrEmpty(t time.Time, timezone string) string {
+	if t.IsZero() {
+		return ""
+	}
 	return t.In(GetAppTimezone(timezone)).Format("2006-01-02 15:04")
 }
 

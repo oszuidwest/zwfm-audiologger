@@ -23,6 +23,7 @@ type Cache struct {
 	entries map[string]*CacheEntry
 }
 
+// NewCache returns a new Cache with the specified directory and TTL.
 func NewCache(dir string, ttl time.Duration) *Cache {
 	return &Cache{
 		dir:     dir,
@@ -31,16 +32,17 @@ func NewCache(dir string, ttl time.Duration) *Cache {
 	}
 }
 
+// Init creates the cache directory if it doesn't exist.
 func (c *Cache) Init() error {
 	return os.MkdirAll(c.dir, 0755)
 }
 
 // generateCacheKey creates a unique cache key for audio segments
-// Format: SHA256(streamName-startTime-endTime) -> base64 URL-safe encoding
+// Format: SHA256(stationName-startTime-endTime) -> base64 URL-safe encoding
 // Ensures identical requests for same time range reuse cached segments
-func (c *Cache) generateCacheKey(streamName, timezone string, startTime, endTime time.Time) string {
+func (c *Cache) generateCacheKey(stationName, timezone string, startTime, endTime time.Time) string {
 	// Create deterministic string from stream name and time range
-	data := fmt.Sprintf("%s-%s-%s", streamName, utils.ToAPIString(startTime, timezone), utils.ToAPIString(endTime, timezone))
+	data := fmt.Sprintf("%s-%s-%s", stationName, utils.ToAPIString(startTime, timezone), utils.ToAPIString(endTime, timezone))
 	// Hash to fixed-length, collision-resistant key
 	hash := sha256.Sum256([]byte(data))
 	// URL-safe base64 encoding for filesystem compatibility
@@ -49,8 +51,8 @@ func (c *Cache) generateCacheKey(streamName, timezone string, startTime, endTime
 
 // GetCachedSegment retrieves a cached audio segment if valid
 // Performs TTL check and file existence validation before returning
-func (c *Cache) GetCachedSegment(streamName, timezone string, startTime, endTime time.Time) (string, bool) {
-	key := c.generateCacheKey(streamName, timezone, startTime, endTime)
+func (c *Cache) GetCachedSegment(stationName, timezone string, startTime, endTime time.Time) (string, bool) {
+	key := c.generateCacheKey(stationName, timezone, startTime, endTime)
 
 	entry, exists := c.entries[key]
 	if !exists {
@@ -75,8 +77,8 @@ func (c *Cache) GetCachedSegment(streamName, timezone string, startTime, endTime
 	return entry.FilePath, true
 }
 
-func (c *Cache) CacheSegment(streamName, timezone string, startTime, endTime time.Time, tempFile string) (string, error) {
-	key := c.generateCacheKey(streamName, timezone, startTime, endTime)
+func (c *Cache) CacheSegment(stationName, timezone string, startTime, endTime time.Time, tempFile string) (string, error) {
+	key := c.generateCacheKey(stationName, timezone, startTime, endTime)
 
 	cachedFilename := key + ".mp3"
 	cachedPath := filepath.Join(c.dir, cachedFilename)
@@ -137,7 +139,7 @@ func (c *Cache) GetCacheStats() map[string]interface{} {
 		"total_entries":    len(c.entries),
 		"valid_entries":    validEntries,
 		"total_size_bytes": totalSize,
-		"cache_dir":        c.dir,
+		"cache_directory":  c.dir,
 		"ttl_hours":        c.ttl.Hours(),
 	}
 }

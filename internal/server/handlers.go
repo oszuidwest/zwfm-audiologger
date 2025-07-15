@@ -8,8 +8,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 )
+
+const APIVersion = "1.0.0"
 
 type APIResponse struct {
 	Success bool        `json:"success"`
@@ -49,19 +53,19 @@ type Check struct {
 	Message string `json:"message,omitempty"`
 }
 
-type StreamInfo struct {
-	Name        string `json:"name"`
-	URL         string `json:"url"`
-	Status      string `json:"status"`
-	LastSeen    string `json:"last_seen,omitempty"`
-	Recordings  int    `json:"recordings_count"`
-	TotalSize   int64  `json:"total_size_bytes"`
-	KeepDays    int    `json:"keep_days"`
-	HasMetadata bool   `json:"has_metadata"`
+type StationInfo struct {
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	Status       string `json:"status"`
+	LastRecorded string `json:"last_recorded,omitempty"`
+	Recordings   int    `json:"recordings_count"`
+	TotalSize    int64  `json:"total_size_bytes"`
+	KeepDays     int    `json:"keep_days"`
+	HasMetadata  bool   `json:"has_metadata"`
 }
 
-type StreamsResponse struct {
-	Streams []StreamInfo `json:"streams"`
+type StationsResponse struct {
+	Stations []StationInfo `json:"stations"`
 }
 
 type Recording struct {
@@ -77,34 +81,34 @@ type Recording struct {
 
 type RecordingURLs struct {
 	Download string `json:"download"`
-	Stream   string `json:"stream"`
+	Playback string `json:"playback"`
 	Metadata string `json:"metadata,omitempty"`
 }
 
 type RecordingsResponse struct {
 	Recordings []Recording `json:"recordings"`
-	Stream     string      `json:"stream"`
+	Station    string      `json:"station"`
 }
 
 type MetadataResponse struct {
-	Stream    string `json:"stream"`
+	Station   string `json:"station"`
 	Timestamp string `json:"timestamp"`
 	Metadata  string `json:"metadata"`
 	FetchedAt string `json:"fetched_at"`
 }
 
 type SystemStats struct {
-	Uptime          string                `json:"uptime"`
-	TotalRecordings int                   `json:"total_recordings"`
-	TotalSize       int64                 `json:"total_size_bytes"`
-	StreamStats     map[string]StreamStat `json:"stream_stats"`
-	CacheStats      interface{}           `json:"cache_stats"`
+	Uptime          string                 `json:"uptime"`
+	TotalRecordings int                    `json:"total_recordings"`
+	TotalSize       int64                  `json:"total_size_bytes"`
+	StationStats    map[string]StationStat `json:"station_stats"`
+	CacheStats      interface{}            `json:"cache_stats"`
 }
 
-type StreamStat struct {
-	Recordings int       `json:"recordings"`
-	SizeBytes  int64     `json:"size_bytes"`
-	LastActive time.Time `json:"last_active"`
+type StationStat struct {
+	Recordings   int       `json:"recordings"`
+	SizeBytes    int64     `json:"size_bytes"`
+	LastRecorded time.Time `json:"last_recorded"`
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -122,7 +126,7 @@ func (s *Server) writeAPIResponse(w http.ResponseWriter, status int, data interf
 		Data:    data,
 		Meta: &APIMeta{
 			Timestamp: time.Now(),
-			Version:   "1.0.0",
+			Version:   APIVersion,
 			Count:     count,
 		},
 	}
@@ -147,7 +151,7 @@ func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, detai
 		},
 		Meta: &APIMeta{
 			Timestamp: time.Now(),
-			Version:   "1.0.0",
+			Version:   APIVersion,
 		},
 	}
 
@@ -156,10 +160,16 @@ func (s *Server) writeAPIError(w http.ResponseWriter, status int, message, detai
 
 var startTime = time.Now()
 
-func (s *Server) calculateStreamStats(streamName string) (totalSize int64, lastSeen time.Time, recordingCount int, err error) {
-	recordings, err := s.getRecordings(streamName)
+// calculateStationStats computes statistics for stationName by scanning its recordings.
+func (s *Server) calculateStationStats(stationName string) (totalSize int64, lastSeen time.Time, recordingCount int, err error) {
+	recordings, err := s.getRecordings(stationName)
 	if err != nil {
 		return 0, time.Time{}, 0, err
+	}
+
+	// If no recordings, return zero time which will be handled appropriately
+	if len(recordings) == 0 {
+		return 0, time.Time{}, 0, nil
 	}
 
 	for _, recording := range recordings {
@@ -174,24 +184,60 @@ func (s *Server) calculateStreamStats(streamName string) (totalSize int64, lastS
 	return totalSize, lastSeen, len(recordings), nil
 }
 
+// buildStationInfo creates a StationInfo struct with calculated statistics
+func (s *Server) buildStationInfo(stationName string, station config.Station) StationInfo {
+	totalSize, lastSeen, recordingCount, _ := s.calculateStationStats(stationName)
+	return StationInfo{
+		Name:         stationName,
+		URL:          station.URL,
+		Status:       "active",
+		LastRecorded: utils.ToAPIStringOrEmpty(lastSeen, s.config.Timezone),
+		Recordings:   recordingCount,
+		TotalSize:    totalSize,
+		KeepDays:     s.config.GetStationKeepDays(stationName),
+		HasMetadata:  station.MetadataURL != "",
+	}
+}
+
+// buildRecordingURLs creates RecordingURLs struct with proper endpoint URLs
+func (s *Server) buildRecordingURLs(stationName, timestamp string, hasMetadata bool) RecordingURLs {
+	baseURL := fmt.Sprintf("/api/v1/stations/%s/recordings/%s", stationName, timestamp)
+	urls := RecordingURLs{
+		Download: baseURL + "/download",
+		Playback: baseURL,
+	}
+	if hasMetadata {
+		urls.Metadata = baseURL + "/metadata"
+	}
+	return urls
+}
+
+// hasMetadataForRecording checks if metadata exists for a recording
+func (s *Server) hasMetadataForRecording(stationName, timestamp string) bool {
+	metadataPath := utils.MetadataPath(s.config.RecordingsDirectory, stationName, timestamp)
+	return utils.FileExists(metadataPath)
+}
+
+// healthHandler provides basic health check endpoint.
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
 
 	s.writeJSON(w, http.StatusOK, HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now(),
-		Version:   "1.0.0",
+		Version:   version.Version,
 		Uptime:    uptime,
 	})
 }
 
+// readinessHandler checks if the server is ready to serve requests.
 func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	checks := []Check{
 		{Name: "cache", Status: "ok"},
 		{Name: "storage", Status: "ok"},
 	}
 
-	if _, err := os.Stat(s.config.RecordingDir); os.IsNotExist(err) {
+	if _, err := os.Stat(s.config.RecordingsDirectory); os.IsNotExist(err) {
 		checks[1].Status = "error"
 		checks[1].Message = "Recording directory not accessible"
 	}
@@ -215,46 +261,33 @@ func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	}, len(checks))
 }
 
-func (s *Server) streamDetailsHandler(w http.ResponseWriter, r *http.Request) {
+// stationDetailsHandler returns detailed information about a specific station.
+func (s *Server) stationDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	streamName := vars["stream"]
+	stationName := vars["station"]
 
-	stream, exists := s.config.Streams[streamName]
-	if !exists {
-		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
+	if !s.validateStationExists(w, stationName) {
 		return
 	}
+	station := s.config.Stations[stationName]
 
-	totalSize, lastSeen, recordingCount, _ := s.calculateStreamStats(streamName)
+	stationInfo := s.buildStationInfo(stationName, station)
 
-	streamInfo := StreamInfo{
-		Name:        streamName,
-		URL:         stream.URL,
-		Status:      "active",
-		LastSeen:    utils.ToAPIString(lastSeen, s.config.Timezone),
-		Recordings:  recordingCount,
-		TotalSize:   totalSize,
-		KeepDays:    s.config.GetStreamKeepDays(streamName),
-		HasMetadata: stream.MetadataURL != "",
-	}
-
-	s.writeAPIResponse(w, http.StatusOK, streamInfo, 1)
+	s.writeAPIResponse(w, http.StatusOK, stationInfo, 1)
 }
 
+// recordingHandler returns information about a specific recording.
 func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	streamName := vars["stream"]
+	stationName := vars["station"]
 	timestamp := vars["timestamp"]
 
-	if _, exists := s.config.Streams[streamName]; !exists {
-		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
+	if !s.validateStationExists(w, stationName) {
 		return
 	}
 
-	recordingPath := utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
-
-	if !utils.FileExists(recordingPath) {
-		s.writeAPIError(w, http.StatusNotFound, "Recording not found", fmt.Sprintf("Recording '%s' does not exist", timestamp))
+	recordingPath, exists := s.validateRecordingExists(w, stationName, timestamp)
+	if !exists {
 		return
 	}
 
@@ -271,10 +304,7 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	endTime := startTime.Add(time.Hour)
 
-	metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, timestamp)
-	hasMetadata := utils.FileExists(metadataPath)
-
-	baseURL := fmt.Sprintf("/api/v1/streams/%s/recordings/%s", streamName, timestamp)
+	hasMetadata := s.hasMetadataForRecording(stationName, timestamp)
 
 	recording := Recording{
 		Timestamp:   timestamp,
@@ -284,58 +314,48 @@ func (s *Server) recordingHandler(w http.ResponseWriter, r *http.Request) {
 		Size:        stat.Size(),
 		SizeHuman:   formatFileSize(stat.Size()),
 		HasMetadata: hasMetadata,
-		URLs: RecordingURLs{
-			Download: baseURL + "/download",
-			Stream:   baseURL,
-			Metadata: func() string {
-				if hasMetadata {
-					return baseURL + "/metadata"
-				}
-				return ""
-			}(),
-		},
+		URLs:        s.buildRecordingURLs(stationName, timestamp, hasMetadata),
 	}
 
 	s.writeAPIResponse(w, http.StatusOK, recording, 1)
 }
 
+// downloadRecordingHandler serves a complete recording file for download.
 func (s *Server) downloadRecordingHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	streamName := vars["stream"]
+	stationName := vars["station"]
 	timestamp := vars["timestamp"]
 
-	if _, exists := s.config.Streams[streamName]; !exists {
-		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
+	if !s.validateStationExists(w, stationName) {
 		return
 	}
 
-	recordingPath := utils.RecordingPath(s.config.RecordingDir, streamName, timestamp)
-
-	if !utils.FileExists(recordingPath) {
-		s.writeAPIError(w, http.StatusNotFound, "Recording not found", fmt.Sprintf("Recording '%s' does not exist", timestamp))
+	recordingPath, exists := s.validateRecordingExists(w, stationName, timestamp)
+	if !exists {
 		return
 	}
 
 	w.Header().Set("Content-Type", "audio/mpeg")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s.mp3\"", streamName, timestamp))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s.mp3\"", stationName, timestamp))
 
 	http.ServeFile(w, r, recordingPath)
 }
 
+// systemStatsHandler returns comprehensive system statistics.
 func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime).String()
 
-	streamStats := make(map[string]StreamStat)
+	stationStats := make(map[string]StationStat)
 	totalRecordings := 0
 	totalSize := int64(0)
 
-	for streamName := range s.config.Streams {
-		streamSize, lastActive, recordingCount, _ := s.calculateStreamStats(streamName)
+	for stationName := range s.config.Stations {
+		streamSize, lastActive, recordingCount, _ := s.calculateStationStats(stationName)
 
-		streamStats[streamName] = StreamStat{
-			Recordings: recordingCount,
-			SizeBytes:  streamSize,
-			LastActive: lastActive,
+		stationStats[stationName] = StationStat{
+			Recordings:   recordingCount,
+			SizeBytes:    streamSize,
+			LastRecorded: lastActive,
 		}
 
 		totalRecordings += recordingCount
@@ -346,46 +366,35 @@ func (s *Server) systemStatsHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime:          uptime,
 		TotalRecordings: totalRecordings,
 		TotalSize:       totalSize,
-		StreamStats:     streamStats,
+		StationStats:    stationStats,
 		CacheStats:      s.cache.GetCacheStats(),
 	}
 
 	s.writeAPIResponse(w, http.StatusOK, stats, 1)
 }
 
-func (s *Server) streamsHandler(w http.ResponseWriter, r *http.Request) {
-	streams := make([]StreamInfo, 0, len(s.config.Streams))
+// stationsHandler returns a list of all configured stations with their statistics.
+func (s *Server) stationsHandler(w http.ResponseWriter, r *http.Request) {
+	stations := make([]StationInfo, 0, len(s.config.Stations))
 
-	for streamName, stream := range s.config.Streams {
-		totalSize, lastSeen, recordingCount, _ := s.calculateStreamStats(streamName)
-
-		streamInfo := StreamInfo{
-			Name:        streamName,
-			URL:         stream.URL,
-			Status:      "active",
-			LastSeen:    utils.ToAPIString(lastSeen, s.config.Timezone),
-			Recordings:  recordingCount,
-			TotalSize:   totalSize,
-			KeepDays:    s.config.GetStreamKeepDays(streamName),
-			HasMetadata: stream.MetadataURL != "",
-		}
-
-		streams = append(streams, streamInfo)
+	for stationName, station := range s.config.Stations {
+		stationInfo := s.buildStationInfo(stationName, station)
+		stations = append(stations, stationInfo)
 	}
 
-	s.writeAPIResponse(w, http.StatusOK, StreamsResponse{Streams: streams}, len(streams))
+	s.writeAPIResponse(w, http.StatusOK, StationsResponse{Stations: stations}, len(stations))
 }
 
+// recordingsHandler returns a list of all recordings for a specific station.
 func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	streamName := vars["stream"]
+	stationName := vars["station"]
 
-	if _, exists := s.config.Streams[streamName]; !exists {
-		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
+	if !s.validateStationExists(w, stationName) {
 		return
 	}
 
-	rawRecordings, err := s.getRecordings(streamName)
+	rawRecordings, err := s.getRecordings(stationName)
 	if err != nil {
 		s.logger.Error("failed to list recordings", "error", err)
 		s.writeAPIError(w, http.StatusInternalServerError, "Failed to list recordings", err.Error())
@@ -397,10 +406,7 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 		startTime, _ := utils.ParseTimestamp(raw.Timestamp, s.config.Timezone)
 		endTime := startTime.Add(time.Hour)
 
-		metadataPath := utils.MetadataPath(s.config.RecordingDir, streamName, raw.Timestamp)
-		hasMetadata := utils.FileExists(metadataPath)
-
-		baseURL := fmt.Sprintf("/api/v1/streams/%s/recordings/%s", streamName, raw.Timestamp)
+		hasMetadata := s.hasMetadataForRecording(stationName, raw.Timestamp)
 
 		recordings[i] = Recording{
 			Timestamp:   raw.Timestamp,
@@ -410,45 +416,36 @@ func (s *Server) recordingsHandler(w http.ResponseWriter, r *http.Request) {
 			Size:        raw.Size,
 			SizeHuman:   formatFileSize(raw.Size),
 			HasMetadata: hasMetadata,
-			URLs: RecordingURLs{
-				Download: baseURL + "/download",
-				Stream:   baseURL,
-				Metadata: func() string {
-					if hasMetadata {
-						return baseURL + "/metadata"
-					}
-					return ""
-				}(),
-			},
+			URLs:        s.buildRecordingURLs(stationName, raw.Timestamp, hasMetadata),
 		}
 	}
 
 	response := RecordingsResponse{
 		Recordings: recordings,
-		Stream:     streamName,
+		Station:    stationName,
 	}
 
 	s.writeAPIResponse(w, http.StatusOK, response, len(recordings))
 }
 
+// metadataHandler returns metadata for a specific recording.
 func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	streamName := vars["stream"]
+	stationName := vars["station"]
 	timestamp := vars["timestamp"]
 
-	if _, exists := s.config.Streams[streamName]; !exists {
-		s.writeAPIError(w, http.StatusNotFound, "Stream not found", fmt.Sprintf("Stream '%s' does not exist", streamName))
+	if !s.validateStationExists(w, stationName) {
 		return
 	}
 
-	metadata, err := s.metadata.GetMetadata(utils.StreamDir(s.config.RecordingDir, streamName), timestamp)
+	metadata, err := s.metadata.GetMetadata(utils.StationDirectory(s.config.RecordingsDirectory, stationName), timestamp)
 	if err != nil {
 		s.writeAPIError(w, http.StatusNotFound, "Metadata not found", err.Error())
 		return
 	}
 
 	response := MetadataResponse{
-		Stream:    streamName,
+		Station:   stationName,
 		Timestamp: timestamp,
 		Metadata:  metadata,
 		FetchedAt: utils.ToAPIString(utils.NowInTimezone(s.config.Timezone), s.config.Timezone),
@@ -457,6 +454,7 @@ func (s *Server) metadataHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeAPIResponse(w, http.StatusOK, response, 1)
 }
 
+// formatFileSize converts bytes to human-readable format (KB, MB, GB).
 func formatFileSize(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {

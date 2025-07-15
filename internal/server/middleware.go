@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// loggingMiddleware logs HTTP requests with timing and status information.
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -23,6 +24,7 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// generateRequestID generates a random 8-character hex string for request identification.
 func generateRequestID() string {
 	bytes := make([]byte, 4)
 	if _, err := rand.Read(bytes); err != nil {
@@ -31,6 +33,7 @@ func generateRequestID() string {
 	return hex.EncodeToString(bytes)
 }
 
+// corsMiddleware adds CORS headers to allow cross-origin requests.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -51,6 +54,7 @@ type responseWriter struct {
 	statusCode int
 }
 
+// WriteHeader captures the status code and calls the underlying WriteHeader.
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
