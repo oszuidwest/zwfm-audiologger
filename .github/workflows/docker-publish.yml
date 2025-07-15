@@ -124,3 +124,4 @@ jobs:
             BUILD_TIME=${{ github.event.repository.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: false
