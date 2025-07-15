@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -13,12 +14,19 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/server"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 )
 
 func main() {
 	configFile := flag.String("config", "streams.json", "Path to configuration file")
 	testRecord := flag.Bool("test-record", false, "Run a single test recording and exit")
+	showVersion := flag.Bool("version", false, "Show version information")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.Info())
+		return
+	}
 
 	cfg, err := config.Load(*configFile)
 	if err != nil {
@@ -32,7 +40,7 @@ func main() {
 		}
 	}()
 
-	log.Info("Starting ZuidWest FM Audio Logger")
+	log.Info("Starting ZuidWest FM Audio Logger", "version", version.Version, "commit", version.Commit)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

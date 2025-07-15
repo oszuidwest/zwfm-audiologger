@@ -12,6 +12,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 	"github.com/tidwall/gjson"
 )
 
@@ -64,6 +65,7 @@ func (f *Fetcher) fetchProgramName(station config.Station) string {
 		f.logger.Error("failed to create metadata request", "error", err)
 		return ""
 	}
+	req.Header.Set("User-Agent", version.UserAgent())
 
 	resp, err := f.client.Do(req)
 	if err != nil {

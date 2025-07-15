@@ -83,7 +83,7 @@ jobs:
           echo "Building $output_name"
           
           env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build \
-            -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -ldflags="-s -w -X github.com/oszuidwest/zwfm-audiologger/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/oszuidwest/zwfm-audiologger/internal/version.Commit=${{ github.sha }} -X github.com/oszuidwest/zwfm-audiologger/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o dist/$output_name \
             .
         done

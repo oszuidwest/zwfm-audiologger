@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 	"github.com/robfig/cron/v3"
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
@@ -233,7 +234,7 @@ func (r *Recorder) startAudioRecording(ctx context.Context, streamURL, outputFil
 		"rw_timeout":              "30000000",                              // 30s read/write timeout (microseconds)
 		"timeout":                 "60000000",                              // 60s overall timeout (microseconds)
 		"t":                       fmt.Sprintf("%.0f", duration.Seconds()), // Recording duration
-		"user_agent":              "AudioLogger/1.0",                       // Identify as audio logger
+		"user_agent":              version.UserAgent(),                     // Identify as audio logger
 	})
 
 	cmd := stream.Output(outputFile, ffmpeg.KwArgs{
@@ -279,7 +280,7 @@ func (r *Recorder) detectStreamBitrate(streamURL string) (int, error) {
 	// Icy-MetaData=1 requests icecast server to include metadata headers
 	// These headers often contain bitrate information
 	req.Header.Set("Icy-MetaData", "1")
-	req.Header.Set("User-Agent", "AudioLogger/1.0")
+	req.Header.Set("User-Agent", version.UserAgent())
 	req.Header.Set("Accept", "audio/mpeg, audio/*")
 
 	client := &http.Client{Timeout: 8 * time.Second}

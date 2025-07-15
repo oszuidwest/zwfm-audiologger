@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 )
 
 const APIVersion = "1.0.0"
@@ -224,7 +225,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now(),
-		Version:   APIVersion,
+		Version:   version.Version,
 		Uptime:    uptime,
 	})
 }

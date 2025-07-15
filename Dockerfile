@@ -21,7 +21,7 @@ ARG BUILD_TIME=unknown
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_TIME}" \
+    -ldflags="-s -w -X github.com/oszuidwest/zwfm-audiologger/internal/version.Version=${VERSION} -X github.com/oszuidwest/zwfm-audiologger/internal/version.Commit=${COMMIT} -X github.com/oszuidwest/zwfm-audiologger/internal/version.BuildTime=${BUILD_TIME}" \
     -o audiologger .
 
 # Runtime stage
