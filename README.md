@@ -134,83 +134,207 @@ Set the `timezone` field to any valid IANA timezone identifier (e.g., `Europe/Am
 
 ## HTTP API
 
-### API Endpoints
+> **Live Demo**: The API is available at https://audiologger.zuidwest.cloud/ with stations `zuidwest` and `rucphen`.
+
+### API Endpoints Overview
+
+| Endpoint | Method | Description | Example |
+|----------|--------|-------------|---------|
+| **System** |
+| `/health` | GET | Health check | `curl http://localhost:8080/health` |
+| `/ready` | GET | Readiness probe with subsystem checks | `curl http://localhost:8080/ready` |
+| `/api/v1/system/stats` | GET | System statistics and storage info | `curl http://localhost:8080/api/v1/system/stats` |
+| **Stations** |
+| `/api/v1/stations` | GET | List all configured stations | `curl http://localhost:8080/api/v1/stations` |
+| `/api/v1/stations/{station}` | GET | Get specific station details | `curl http://localhost:8080/api/v1/stations/zuidwest` |
+| **Recordings** |
+| `/api/v1/stations/{station}/recordings` | GET | List recordings for a station | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings` |
+| `/api/v1/stations/{station}/recordings/{timestamp}` | GET | Get recording details | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15` |
+| `/api/v1/stations/{station}/recordings/{timestamp}/play` | GET | Stream recording (audio/mpeg) | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play` |
+| `/api/v1/stations/{station}/recordings/{timestamp}/download` | GET | Download recording file | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/download -o recording.mp3` |
+| `/api/v1/stations/{station}/recordings/{timestamp}/metadata` | GET | Get recording metadata | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata` |
+| **Audio Clips** |
+| `/api/v1/stations/{station}/clips` | GET | Extract audio clip by time range | `curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00&end=2025-07-15T15:35:00" -o clip.mp3` |
+
+### Detailed Examples
 
 #### System Endpoints
 
-**Health Check**
+**Health Check** - Quick status check for monitoring
 ```bash
 curl http://localhost:8080/health
-# Returns: {"status":"ok","timestamp":"2025-07-16T00:12:44.951087639+02:00","uptime":"1m12.185542272s","version":"edge"}
+```
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-07-16T00:12:44.951087639+02:00",
+  "uptime": "1m12.185542272s",
+  "version": "5.1.0"
+}
 ```
 
-**Readiness Check**
+**Readiness Check** - Detailed subsystem status
 ```bash
-curl http://localhost:8080/ready
-# Returns: {"data":{"checks":[{"name":"cache","status":"ok"},{"name":"storage","status":"ok"}],"ready":true},"meta":{"count":2,"timestamp":"2025-07-16T00:12:49.107761699+02:00","version":"edge"},"success":true}
+curl http://localhost:8080/ready | jq
+```
+```json
+{
+  "data": {
+    "checks": [
+      {"name": "cache", "status": "ok"},
+      {"name": "storage", "status": "ok"}
+    ],
+    "ready": true
+  },
+  "meta": {
+    "count": 2,
+    "timestamp": "2025-07-16T00:12:49.107761699+02:00",
+    "version": "5.1.0"
+  },
+  "success": true
+}
 ```
 
-**System Statistics**
+**System Statistics** - Storage and recording overview
 ```bash
 curl http://localhost:8080/api/v1/system/stats | jq
-# Returns: {"data":{"station_stats":{"zuidwest":{"last_recorded":"2025-07-16T00:00:00+02:00","recordings":10,"size_bytes":739178788}},"total_recordings":20,"total_size":1478357495,"uptime":"1m21.109119262s"},"meta":{"count":1,"timestamp":"2025-07-16T00:12:53.874669915+02:00","version":"edge"},"success":true}
+```
+```json
+{
+  "data": {
+    "station_stats": {
+      "zuidwest": {
+        "last_recorded": "2025-07-16T00:00:00+02:00",
+        "recordings": 10,
+        "size_bytes": 739178788
+      }
+    },
+    "total_recordings": 20,
+    "total_size": 1478357495,
+    "uptime": "1m21.109119262s"
+  },
+  "meta": {
+    "count": 1,
+    "timestamp": "2025-07-16T00:12:53.874669915+02:00",
+    "version": "5.1.0"
+  },
+  "success": true
+}
 ```
 
 #### Station Endpoints
 
-**List All Stations**
+**List All Stations** - Overview of configured stations
 ```bash
 curl http://localhost:8080/api/v1/stations | jq
-# Returns: {"data":{"stations":[{"has_metadata":true,"keep_days":31,"last_recorded":"2025-07-16 00:00","name":"zuidwest","recordings":10,"status":"active","total_size":739178788,"url":"https://icecast.zuidwest.cloud/zuidwest.mp3"}]},"meta":{"count":2,"timestamp":"2025-07-16T00:13:00.072395708+02:00","version":"edge"},"success":true}
 ```
-
-**Get Station Details**
-```bash
-curl http://localhost:8080/api/v1/stations/zuidwest | jq
-# Returns: {"data":{"has_metadata":true,"keep_days":31,"last_recorded":"2025-07-16 00:00","name":"zuidwest","recordings":10,"status":"active","total_size":739178788,"url":"https://icecast.zuidwest.cloud/zuidwest.mp3"},"meta":{"count":1,"timestamp":"2025-07-16T00:13:05.839317331+02:00","version":"edge"},"success":true}
+```json
+{
+  "data": {
+    "stations": [{
+      "has_metadata": true,
+      "keep_days": 31,
+      "last_recorded": "2025-07-16 00:00",
+      "name": "zuidwest",
+      "recordings": 10,
+      "status": "active",
+      "total_size": 739178788,
+      "url": "https://icecast.zuidwest.cloud/zuidwest.mp3"
+    }]
+  },
+  "meta": {
+    "count": 1,
+    "timestamp": "2025-07-16T00:13:00.072395708+02:00",
+    "version": "5.1.0"
+  },
+  "success": true
+}
 ```
 
 #### Recording Endpoints
 
-**List Station Recordings**
+**List Recordings** - Get all recordings for a station
 ```bash
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings | jq
-# Returns: {"data":{"recordings":[{"duration":"1h","end_time":"2025-07-15 16:00","has_metadata":true,"size":86400804,"size_human":"82.4 MB","start_time":"2025-07-15 15:00","timestamp":"2025-07-15-15","urls":{"details":"/api/v1/stations/zuidwest/recordings/2025-07-15-15","download":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/download","metadata":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata","playback":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/play"}}]},"meta":{"count":10,"timestamp":"2025-07-16T00:13:12.468589845+02:00","version":"edge"},"success":true}
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings | jq '.data.recordings[0]'
+```
+```json
+{
+  "duration": "01:00:00.000",
+  "end_time": "2025-07-15 16:00",
+  "has_metadata": true,
+  "size": 86400804,
+  "size_human": "82.4 MB",
+  "start_time": "2025-07-15 15:00",
+  "timestamp": "2025-07-15-15",
+  "urls": {
+    "details": "/api/v1/stations/zuidwest/recordings/2025-07-15-15",
+    "download": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/download",
+    "metadata": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata",
+    "playback": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/play"
+  }
+}
 ```
 
-**Get Recording Information**
+**Play Recording** - Stream audio directly
 ```bash
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15 | jq
-# Returns: {"data":{"duration":"1h","end_time":"2025-07-15 16:00","has_metadata":true,"metadata":"Moor in de Middag","size":86400804,"size_human":"82.4 MB","start_time":"2025-07-15 15:00","timestamp":"2025-07-15-15","urls":{"details":"/api/v1/stations/zuidwest/recordings/2025-07-15-15","download":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/download","metadata":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata","playback":"/api/v1/stations/zuidwest/recordings/2025-07-15-15/play"}},"meta":{"count":1,"timestamp":"2025-07-16T00:13:20.731968577+02:00","version":"edge"},"success":true}
-```
+# Play with ffplay
+curl -s http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play | ffplay -
 
-**Play Recording (Stream)**
-```bash
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play
-# Returns: Audio stream for direct playback
-```
+# Play with mpv
+mpv http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play
 
-**Download Recording**
-```bash
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/download -o recording.mp3
-# Downloads the complete recording file
-```
-
-**Get Recording Metadata**
-```bash
-curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata | jq
-# Returns: {"data":{"fetched_at":"2025-07-16 00:13","metadata":"Moor in de Middag","station":"zuidwest","timestamp":"2025-07-15-15"},"meta":{"count":1,"timestamp":"2025-07-16T00:13:28.466867874+02:00","version":"edge"},"success":true}
+# Save to file
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/download -o "zuidwest-2025-07-15-15.mp3"
 ```
 
 #### Audio Clips
 
-**Extract Audio Clip**
+**Extract Custom Time Range** - Get a specific segment
 ```bash
-curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00&end=2025-07-15T15:35:00" -o clip.mp3
-# Returns: 5-minute audio segment from 15:30 to 15:35
+# Extract 5 minutes (15:30 to 15:35)
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00&end=2025-07-15T15:35:00" \
+  -o news-segment.mp3
 
-# Also supports timezone offsets
-curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00+02:00&end=2025-07-15T15:35:00+02:00" -o clip.mp3
+# Extract with timezone (same result)
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00+02:00&end=2025-07-15T15:35:00+02:00" \
+  -o news-segment.mp3
+
+# Extract 30 seconds for a promo
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:00:00&end=2025-07-15T15:00:30" \
+  -o promo.mp3
+```
+
+### Response Format
+
+All API endpoints return consistent JSON responses:
+
+```json
+{
+  "data": {},        // Actual response data
+  "meta": {          // Metadata about the response
+    "count": 1,      // Number of items returned
+    "timestamp": "", // Server timestamp
+    "version": ""    // API version
+  },
+  "success": true    // Request success status
+}
+```
+
+### Error Responses
+
+```json
+{
+  "error": {
+    "code": 404,
+    "message": "Recording not found",
+    "details": "Recording '2025-07-15-25' does not exist"
+  },
+  "meta": {
+    "timestamp": "2025-07-16T00:15:00.000000000+02:00",
+    "version": "5.1.0"
+  },
+  "success": false
+}
 ```
 
 ## Docker Deployment
