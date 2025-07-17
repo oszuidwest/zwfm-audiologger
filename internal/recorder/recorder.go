@@ -194,7 +194,7 @@ func (r *Recorder) startAudioRecording(_ context.Context, streamURL, outputPath 
 	r.logger.Debug("starting FFmpeg recording", "url", streamURL, "output", outputPath, "duration", duration, "format", format.Name)
 
 	inputArgs := ffmpeglib.KwArgs{
-		"t":                   duration.String(),
+		"t":                   fmt.Sprintf("%.0f", duration.Seconds()),
 		"reconnect":           "1",
 		"reconnect_at_eof":    "1",
 		"reconnect_streamed":  "1",
