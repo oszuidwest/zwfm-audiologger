@@ -813,7 +813,7 @@ func (s *GinServer) extractClip(inputFile, outputFile string, startOffset, durat
 		"c":                 "copy",
 		"avoid_negative_ts": "make_zero",
 		"copyts":            "",
-		"map_metadata":      "0",  // Copy metadata from input
+		"map_metadata":      "0", // Copy metadata from input
 		"y":                 "",
 	}
 
