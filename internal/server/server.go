@@ -615,6 +615,23 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 		return
 	}
 
+	// Get actual duration of the generated clip
+	actualDuration, err := s.getRecordingDuration(clip)
+	if err != nil {
+		s.logger.Error("failed to get clip duration", "clip", clip, "error", err)
+		s.apiError(c, http.StatusInternalServerError, "Failed to get clip duration", err.Error())
+		return
+	}
+
+	// Parse duration to get seconds for header
+	dur, err := time.ParseDuration(actualDuration)
+	if err != nil {
+		s.logger.Error("failed to parse clip duration", "duration", actualDuration, "error", err)
+		s.apiError(c, http.StatusInternalServerError, "Failed to parse clip duration", err.Error())
+		return
+	}
+	durationSeconds := dur.Seconds()
+
 	// Log details about the generated clip
 	if stat, statErr := os.Stat(clip); statErr == nil {
 		s.logger.Info("generated audio clip",
@@ -622,6 +639,8 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 			"clip_path", clip,
 			"clip_size", stat.Size(),
 			"clip_format", clipFormat.Extension,
+			"duration", actualDuration,
+			"duration_seconds", durationSeconds,
 		)
 	} else {
 		s.logger.Error("failed to stat generated clip", "error", statErr, "clip_path", clip)
@@ -637,12 +656,14 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 	}()
 
 	if s.config.Debug {
-		s.logger.Debug("serving audio clip", "station", stationName, "file", clip, "format", clipFormat.Extension)
+		s.logger.Debug("serving audio clip", "station", stationName, "file", clip, "format", clipFormat.Extension, "duration", actualDuration)
 	}
 
+	// Set headers - only use X-Audio-Duration as a custom header for API convenience
 	c.Header("Content-Type", clipFormat.MimeType)
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s_%s_%s%s\"",
 		stationName, startTime.Format("2006-01-02-15-04-05"), endTime.Format("2006-01-02-15-04-05"), clipFormat.Extension))
+	c.Header("X-Audio-Duration", fmt.Sprintf("%.3f", durationSeconds))
 	c.File(clip)
 }
 
@@ -785,12 +806,14 @@ func (s *GinServer) generateAudioClipFromHourlyRecording(stationName string, sta
 
 func (s *GinServer) extractClip(inputFile, outputFile string, startOffset, duration time.Duration) error {
 	// Use stream copy with output-side seeking for better precision
+	// Add metadata preservation to ensure proper duration info
 	outputArgs := ffmpeglib.KwArgs{
 		"ss":                utils.FormatDuration(startOffset),
 		"t":                 utils.FormatDuration(duration),
 		"c":                 "copy",
 		"avoid_negative_ts": "make_zero",
 		"copyts":            "",
+		"map_metadata":      "0",  // Copy metadata from input
 		"y":                 "",
 	}
 
