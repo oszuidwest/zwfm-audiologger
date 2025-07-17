@@ -616,21 +616,14 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 	}
 
 	// Get actual duration of the generated clip
-	actualDuration, err := s.getRecordingDuration(clip)
+	audioInfo, err := audio.ProbeFile(clip)
 	if err != nil {
 		s.logger.Error("failed to get clip duration", "clip", clip, "error", err)
 		s.apiError(c, http.StatusInternalServerError, "Failed to get clip duration", err.Error())
 		return
 	}
 
-	// Parse duration to get seconds for header
-	dur, err := time.ParseDuration(actualDuration)
-	if err != nil {
-		s.logger.Error("failed to parse clip duration", "duration", actualDuration, "error", err)
-		s.apiError(c, http.StatusInternalServerError, "Failed to parse clip duration", err.Error())
-		return
-	}
-	durationSeconds := dur.Seconds()
+	durationSeconds := audioInfo.Duration.Seconds()
 
 	// Log details about the generated clip
 	if stat, statErr := os.Stat(clip); statErr == nil {
@@ -639,7 +632,7 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 			"clip_path", clip,
 			"clip_size", stat.Size(),
 			"clip_format", clipFormat.Extension,
-			"duration", actualDuration,
+			"duration", audioInfo.Duration,
 			"duration_seconds", durationSeconds,
 		)
 	} else {
@@ -656,7 +649,7 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 	}()
 
 	if s.config.Debug {
-		s.logger.Debug("serving audio clip", "station", stationName, "file", clip, "format", clipFormat.Extension, "duration", actualDuration)
+		s.logger.Debug("serving audio clip", "station", stationName, "file", clip, "format", clipFormat.Extension, "duration", audioInfo.Duration)
 	}
 
 	// Set headers - only use X-Audio-Duration as a custom header for API convenience
