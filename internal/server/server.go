@@ -177,12 +177,15 @@ func (s *GinServer) normalizedCacheMiddleware(duration time.Duration) gin.Handle
 
 		// Cache the response if it was successful and contains audio data
 		if c.Writer.Status() == http.StatusOK && len(writer.body) > 1024 {
-			s.ginCache.Set(cacheKey, writer.body, duration)
-			s.logger.Debug("cached response",
-				"cache_key", cacheKey,
-				"size", len(writer.body),
-				"duration", duration,
-			)
+			if err := s.ginCache.Set(cacheKey, writer.body, duration); err != nil {
+				s.logger.Warn("failed to cache response", "cache_key", cacheKey, "error", err)
+			} else {
+				s.logger.Debug("cached response",
+					"cache_key", cacheKey,
+					"size", len(writer.body),
+					"duration", duration,
+				)
+			}
 		}
 	}
 }
