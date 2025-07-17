@@ -76,6 +76,9 @@ func (s *GinServer) Start(ctx context.Context, port string) error {
 		return fmt.Errorf("failed to create directory %s: %w", s.config.Server.CacheDirectory, err)
 	}
 
+	// Clean up any leftover temp files from previous runs
+	s.cleanupTempFiles()
+
 	s.setupRoutes()
 	server := &http.Server{
 		Addr:         ":" + port,
@@ -131,9 +134,9 @@ func (s *GinServer) setupRoutes() {
 		v1.GET("/stations/:station/recordings/:timestamp/download", s.downloadRecordingHandler)
 		v1.GET("/stations/:station/recordings/:timestamp/metadata", s.metadataHandler)
 
-		// Audio clips (cached)
+		// Audio clips (cached for 7 days)
 		v1.GET("/stations/:station/clips",
-			cache.CachePage(s.ginCache, 1*time.Hour, s.audioClipHandler))
+			cache.CachePage(s.ginCache, 7*24*time.Hour, s.audioClipHandler))
 	}
 }
 
@@ -482,6 +485,10 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 		return
 	}
 
+	if s.config.Debug {
+		s.logger.Debug("generating audio clip", "station", stationName, "start", req.Start, "end", req.End)
+	}
+
 	startTime, err := utils.ParseTimestampAsTimezone(req.Start, s.config.Timezone)
 	if err != nil {
 		s.apiError(c, http.StatusBadRequest, "Invalid start time format", err.Error())
@@ -504,6 +511,19 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 		s.logger.Error("failed to generate audio clip", "error", err)
 		s.apiError(c, http.StatusInternalServerError, "Failed to generate audio clip", err.Error())
 		return
+	}
+
+	// Ensure cleanup of temp file after serving
+	defer func() {
+		if utils.FileExists(clip) {
+			if err := os.Remove(clip); err != nil {
+				s.logger.Warn("failed to cleanup temp clip file", "file", clip, "error", err)
+			}
+		}
+	}()
+
+	if s.config.Debug {
+		s.logger.Debug("serving audio clip", "station", stationName, "file", clip, "format", clipFormat.Extension)
 	}
 
 	c.Header("Content-Type", clipFormat.MimeType)
@@ -618,15 +638,31 @@ func (s *GinServer) generateAudioClipFromHourlyRecording(stationName string, sta
 	timestamp := utils.FormatTimestamp(recordingHour, s.config.Timezone)
 	recordingPath, format, exists := utils.FindRecordingFile(s.config.RecordingsDirectory, stationName, timestamp)
 
+	if s.config.Debug {
+		s.logger.Debug("looking for hourly recording", "station", stationName, "timestamp", timestamp, "path", recordingPath, "exists", exists)
+	}
+
 	if !exists {
 		return "", audio.Format{}, fmt.Errorf("hourly recording not found for %s", timestamp)
 	}
 
 	offsetFromHour := startTimeLocal.Sub(recordingHour)
 	duration := endTimeLocal.Sub(startTimeLocal)
-	tempFile := filepath.Join(s.config.Server.CacheDirectory, fmt.Sprintf("clip_%s_%d%s", stationName, time.Now().UnixNano(), format.Extension))
+
+	// Generate temporary file for the clip with process ID for uniqueness
+	tempFile := filepath.Join(s.config.Server.CacheDirectory, fmt.Sprintf("clip_%s_%d_%d%s", stationName, os.Getpid(), time.Now().UnixNano(), format.Extension))
+
+	if s.config.Debug {
+		s.logger.Debug("generating audio clip", "station", stationName, "offset", offsetFromHour, "duration", duration, "output", tempFile)
+	}
 
 	if err := s.extractClip(recordingPath, tempFile, offsetFromHour, duration); err != nil {
+		// Clean up failed extraction file
+		if utils.FileExists(tempFile) {
+			if removeErr := os.Remove(tempFile); removeErr != nil {
+				s.logger.Warn("failed to cleanup failed extraction file", "file", tempFile, "error", removeErr)
+			}
+		}
 		return "", audio.Format{}, fmt.Errorf("failed to extract clip: %w", err)
 	}
 
@@ -634,21 +670,56 @@ func (s *GinServer) generateAudioClipFromHourlyRecording(stationName string, sta
 }
 
 func (s *GinServer) extractClip(inputFile, outputFile string, startOffset, duration time.Duration) error {
-	inputArgs := ffmpeglib.KwArgs{
-		"ss": utils.FormatDuration(startOffset),
-		"t":  utils.FormatDuration(duration),
-	}
-
+	// Use stream copy with output-side seeking for better precision
 	outputArgs := ffmpeglib.KwArgs{
+		"ss":                utils.FormatDuration(startOffset),
+		"t":                 utils.FormatDuration(duration),
 		"c":                 "copy",
 		"avoid_negative_ts": "make_zero",
+		"copyts":            "",
 		"y":                 "",
 	}
 
-	err := ffmpeglib.Input(inputFile, inputArgs).Output(outputFile, outputArgs).OverWriteOutput().Silent(true).Run()
+	if s.config.Debug {
+		s.logger.Debug("running ffmpeg extraction", "input", inputFile, "output", outputFile, "ss", utils.FormatDuration(startOffset), "t", utils.FormatDuration(duration))
+	}
+
+	err := ffmpeglib.Input(inputFile).Output(outputFile, outputArgs).OverWriteOutput().Silent(true).Run()
 
 	if err != nil {
-		return fmt.Errorf("failed to ffmpeg extraction: %w", err)
+		return fmt.Errorf("failed to extract clip: %w", err)
 	}
+
+	// Verify the output file is valid and not just metadata
+	if stat, err := os.Stat(outputFile); err != nil {
+		return fmt.Errorf("output file not created: %w", err)
+	} else if stat.Size() < 1024 {
+		// If file is smaller than 1KB, it's likely just metadata
+		return fmt.Errorf("output file too small (%d bytes), likely extraction failed", stat.Size())
+	}
+
 	return nil
+}
+
+// cleanupTempFiles removes old clip temp files from the cache directory
+func (s *GinServer) cleanupTempFiles() {
+	pattern := filepath.Join(s.config.Server.CacheDirectory, "clip_*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		s.logger.Warn("failed to glob temp files for cleanup", "error", err)
+		return
+	}
+
+	cleaned := 0
+	for _, file := range matches {
+		if err := os.Remove(file); err != nil {
+			s.logger.Warn("failed to remove temp file", "file", file, "error", err)
+		} else {
+			cleaned++
+		}
+	}
+
+	if cleaned > 0 {
+		s.logger.Info("cleaned up temp files", "count", cleaned)
+	}
 }
