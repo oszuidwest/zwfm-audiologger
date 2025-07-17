@@ -295,14 +295,24 @@ curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/dow
 curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00&end=2025-07-15T15:35:00" \
   -o news-segment.mp3
 
-# Extract with timezone (same result)
+# Extract with positive timezone offset
 curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00+02:00&end=2025-07-15T15:35:00+02:00" \
+  -o news-segment.mp3
+
+# Extract with negative timezone offset
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00-05:00&end=2025-07-15T15:35:00-05:00" \
+  -o news-segment.mp3
+
+# Extract with UTC timezone
+curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T13:30:00Z&end=2025-07-15T13:35:00Z" \
   -o news-segment.mp3
 
 # Extract 30 seconds for a promo
 curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:00:00&end=2025-07-15T15:00:30" \
   -o promo.mp3
 ```
+
+> **Note**: The API accepts timezone offsets in both URL-encoded and unencoded formats. While `+02:00` works directly in most contexts, some HTTP clients may automatically encode it as `%2B02:00` - both formats work identically.
 
 ### Response Format
 

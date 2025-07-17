@@ -6,11 +6,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/gin-contrib/cache"
 	"github.com/gin-contrib/cache/persistence"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -135,9 +135,92 @@ func (s *GinServer) setupRoutes() {
 		v1.GET("/stations/:station/recordings/:timestamp/metadata", s.metadataHandler)
 
 		// Audio clips (cached for 7 days)
-		v1.GET("/stations/:station/clips",
-			cache.CachePage(s.ginCache, 7*24*time.Hour, s.audioClipHandler))
+		v1.GET("/stations/:station/clips", s.normalizedCacheMiddleware(7*24*time.Hour), s.audioClipHandler)
 	}
+}
+
+// normalizedCacheMiddleware creates a cache middleware that normalizes URL-encoded query parameters
+// to ensure consistent cache keys for equivalent requests (e.g., encoded vs unencoded colons)
+func (s *GinServer) normalizedCacheMiddleware(duration time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Generate normalized cache key
+		cacheKey := s.generateNormalizedCacheKey(c)
+
+		s.logger.Debug("cache middleware",
+			"original_url", c.Request.URL.String(),
+			"cache_key", cacheKey,
+		)
+
+		// Check cache first
+		var cachedData []byte
+		if err := s.ginCache.Get(cacheKey, &cachedData); err == nil {
+			s.logger.Debug("cache hit", "cache_key", cacheKey)
+
+			// Serve cached response
+			c.Header("X-Cache", "HIT")
+			c.Data(http.StatusOK, "audio/mpeg", cachedData)
+			c.Abort()
+			return
+		}
+
+		s.logger.Debug("cache miss", "cache_key", cacheKey)
+
+		// Create a custom response writer to capture the response
+		writer := &responseCapture{
+			ResponseWriter: c.Writer,
+			body:           make([]byte, 0),
+		}
+		c.Writer = writer
+
+		// Continue to handler
+		c.Next()
+
+		// Cache the response if it was successful and contains audio data
+		if c.Writer.Status() == http.StatusOK && len(writer.body) > 1024 {
+			s.ginCache.Set(cacheKey, writer.body, duration)
+			s.logger.Debug("cached response",
+				"cache_key", cacheKey,
+				"size", len(writer.body),
+				"duration", duration,
+			)
+		}
+	}
+}
+
+// generateNormalizedCacheKey creates a consistent cache key by normalizing URL parameters
+func (s *GinServer) generateNormalizedCacheKey(c *gin.Context) string {
+	// Parse and normalize query parameters
+	params := c.Request.URL.Query()
+	normalizedParams := url.Values{}
+
+	for key, values := range params {
+		for _, value := range values {
+			// URL decode the value to normalize it
+			if decoded, err := url.QueryUnescape(value); err == nil {
+				normalizedParams.Add(key, decoded)
+			} else {
+				normalizedParams.Add(key, value)
+			}
+		}
+	}
+
+	// Include station parameter from path
+	station := c.Param("station")
+
+	// Generate consistent cache key
+	cacheKey := fmt.Sprintf("clips:%s:%s", station, normalizedParams.Encode())
+	return cacheKey
+}
+
+// responseCapture captures response data for caching
+type responseCapture struct {
+	gin.ResponseWriter
+	body []byte
+}
+
+func (w *responseCapture) Write(data []byte) (int, error) {
+	w.body = append(w.body, data...)
+	return w.ResponseWriter.Write(data)
 }
 
 // formatFileSize converts bytes to human-readable format
@@ -485,6 +568,15 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 		return
 	}
 
+	// Always log parameter details for debugging URL encoding issues
+	s.logger.Info("audio clip request",
+		"station", stationName,
+		"raw_start", req.Start,
+		"raw_end", req.End,
+		"raw_query", c.Request.URL.RawQuery,
+		"full_url", c.Request.URL.String(),
+	)
+
 	if s.config.Debug {
 		s.logger.Debug("generating audio clip", "station", stationName, "start", req.Start, "end", req.End)
 	}
@@ -506,11 +598,30 @@ func (s *GinServer) audioClipHandler(c *gin.Context) {
 		return
 	}
 
+	s.logger.Info("attempting to generate audio clip",
+		"station", stationName,
+		"start_time", startTime,
+		"end_time", endTime,
+		"duration", endTime.Sub(startTime),
+	)
+
 	clip, clipFormat, err := s.generateAudioClipFromHourlyRecording(stationName, startTime, endTime)
 	if err != nil {
 		s.logger.Error("failed to generate audio clip", "error", err)
 		s.apiError(c, http.StatusInternalServerError, "Failed to generate audio clip", err.Error())
 		return
+	}
+
+	// Log details about the generated clip
+	if stat, statErr := os.Stat(clip); statErr == nil {
+		s.logger.Info("generated audio clip",
+			"station", stationName,
+			"clip_path", clip,
+			"clip_size", stat.Size(),
+			"clip_format", clipFormat.Extension,
+		)
+	} else {
+		s.logger.Error("failed to stat generated clip", "error", statErr, "clip_path", clip)
 	}
 
 	// Ensure cleanup of temp file after serving
@@ -687,6 +798,13 @@ func (s *GinServer) extractClip(inputFile, outputFile string, startOffset, durat
 	err := ffmpeglib.Input(inputFile).Output(outputFile, outputArgs).OverWriteOutput().Silent(true).Run()
 
 	if err != nil {
+		s.logger.Error("ffmpeg extraction failed",
+			"input", inputFile,
+			"output", outputFile,
+			"start_offset", utils.FormatDuration(startOffset),
+			"duration", utils.FormatDuration(duration),
+			"error", err,
+		)
 		return fmt.Errorf("failed to extract clip: %w", err)
 	}
 
