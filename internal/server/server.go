@@ -107,7 +107,7 @@ func (s *GinServer) setupRoutes() {
 	s.engine.Use(s.customLoggingMiddleware())
 	s.engine.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -515,6 +515,9 @@ func (s *GinServer) playRecordingHandler(c *gin.Context) {
 
 	c.Header("Content-Type", format.MimeType)
 	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s_%s%s\"", stationName, timestamp, format.Extension))
+	c.Header("Accept-Ranges", "bytes")
+	c.Header("Cache-Control", "public, max-age=3600")
+
 	c.File(recordingPath)
 }
 
