@@ -13,6 +13,7 @@ A Go application for recording hourly audio streams and serving audio segments v
 - **Structured Logging**: slog-based logging with station context
 - **Caching**: Segment serving with automatic cache management
 - **Configurable Timezone**: Deploy anywhere with timezone-aware recording and API
+- **Waveform Visualization**: Automatic generation of peaks data for web audio players (WaveSurfer.js compatible)
 
 ## Prerequisites
 
@@ -127,6 +128,7 @@ Set the `timezone` field to any valid IANA timezone identifier (e.g., `Europe/Am
 /var/audio/
 ├── zuidwest/
 │   ├── 2024-01-15-14.mp3
+│   ├── 2024-01-15-14.mp3.peaks.json
 │   └── 2024-01-15-14.meta
 └── cache/
     └── {hash}.mp3
@@ -153,6 +155,7 @@ Set the `timezone` field to any valid IANA timezone identifier (e.g., `Europe/Am
 | `/api/v1/stations/{station}/recordings/{timestamp}/play` | GET | Stream recording (audio/mpeg) | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play` |
 | `/api/v1/stations/{station}/recordings/{timestamp}/download` | GET | Download recording file | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/download -o recording.mp3` |
 | `/api/v1/stations/{station}/recordings/{timestamp}/metadata` | GET | Get recording metadata | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata` |
+| `/api/v1/stations/{station}/recordings/{timestamp}/peaks` | GET | Get waveform peaks data | `curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/peaks` |
 | **Audio Clips** |
 | `/api/v1/stations/{station}/clips` | GET | Extract audio clip by time range | `curl "http://localhost:8080/api/v1/stations/zuidwest/clips?start=2025-07-15T15:30:00&end=2025-07-15T15:35:00" -o clip.mp3` |
 
@@ -270,6 +273,7 @@ curl http://localhost:8080/api/v1/stations/zuidwest/recordings | jq '.data.recor
     "details": "/api/v1/stations/zuidwest/recordings/2025-07-15-15",
     "download": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/download",
     "metadata": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/metadata",
+    "peaks": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/peaks",
     "playback": "/api/v1/stations/zuidwest/recordings/2025-07-15-15/play"
   }
 }
@@ -286,6 +290,37 @@ mpv http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/play
 # Save to file
 curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/download -o "zuidwest-2025-07-15-15.mp3"
 ```
+
+**Get Waveform Peaks** - For audio visualization
+```bash
+curl http://localhost:8080/api/v1/stations/zuidwest/recordings/2025-07-15-15/peaks | jq
+```
+```json
+{
+  "data": {
+    "peaks": {
+      "version": 2,
+      "channels": 1,
+      "sample_rate": 44100,
+      "samples_per_pixel": 800,
+      "bits": 8,
+      "length": 4500,
+      "data": [120, 125, 118, 122, ...]
+    },
+    "station": "zuidwest",
+    "timestamp": "2025-07-15-15",
+    "generated": false
+  },
+  "meta": {
+    "count": 1,
+    "timestamp": "2025-07-16T00:13:00.072395708+02:00",
+    "version": "5.1.0"
+  },
+  "success": true
+}
+```
+
+The peaks data is compatible with [WaveSurfer.js](https://wavesurfer.xyz/) and similar audio visualization libraries. Peaks are automatically generated after each recording or on-demand when first requested. See the [examples directory](examples/wavesurfer-example.html) for a complete implementation.
 
 #### Audio Clips
 

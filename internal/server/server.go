@@ -18,6 +18,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
+	"github.com/oszuidwest/zwfm-audiologger/internal/peaks"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 	ffmpeglib "github.com/u2takey/ffmpeg-go"
@@ -133,6 +134,7 @@ func (s *GinServer) setupRoutes() {
 		v1.GET("/stations/:station/recordings/:timestamp/play", s.playRecordingHandler)
 		v1.GET("/stations/:station/recordings/:timestamp/download", s.downloadRecordingHandler)
 		v1.GET("/stations/:station/recordings/:timestamp/metadata", s.metadataHandler)
+		v1.GET("/stations/:station/recordings/:timestamp/peaks", s.peaksHandler)
 
 		// Audio clips (cached for 7 days)
 		v1.GET("/stations/:station/clips", s.normalizedCacheMiddleware(7*24*time.Hour), s.audioClipHandler)
@@ -561,6 +563,39 @@ func (s *GinServer) metadataHandler(c *gin.Context) {
 	}, 1)
 }
 
+func (s *GinServer) peaksHandler(c *gin.Context) {
+	stationName := c.Param("station")
+	timestamp := c.Param("timestamp")
+
+	if !s.validateStation(c, stationName) {
+		return
+	}
+
+	// Check if recording exists
+	recordingPath, _, exists := s.validateRecordingExists(c, stationName, timestamp)
+	if !exists {
+		return
+	}
+
+	// Create peaks generator
+	peaksGen := peaks.NewGenerator(s.logger)
+
+	// Get peaks data (load existing or generate new)
+	peaksData, generated, err := peaksGen.GetPeaks(recordingPath, peaks.DefaultSamplesPerPixel)
+	if err != nil {
+		s.apiError(c, http.StatusInternalServerError, "Failed to get peaks data", err.Error())
+		return
+	}
+
+	// Return peaks data
+	s.apiResponse(c, http.StatusOK, gin.H{
+		"station":   stationName,
+		"timestamp": timestamp,
+		"peaks":     peaksData,
+		"generated": generated,
+	}, 1)
+}
+
 func (s *GinServer) audioClipHandler(c *gin.Context) {
 	stationName := c.Param("station")
 
@@ -715,6 +750,7 @@ func (s *GinServer) buildRecordingURLs(stationName, timestamp string, hasMetadat
 		"download": baseURL + "/download",
 		"playback": baseURL + "/play",
 		"details":  baseURL,
+		"peaks":    baseURL + "/peaks", // Always available (generated on-demand if needed)
 	}
 	if hasMetadata {
 		urls["metadata"] = baseURL + "/metadata"

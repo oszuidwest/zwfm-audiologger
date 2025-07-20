@@ -14,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
+	"github.com/oszuidwest/zwfm-audiologger/internal/peaks"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 	"github.com/robfig/cron/v3"
@@ -152,6 +153,9 @@ func (r *Recorder) recordAudioStream(ctx context.Context, stationName string, st
 		// Continue with metadata fetching and mark as successful recording
 	}
 
+	// Generate waveform peaks data
+	r.generatePeaks(recordingPath, stationName)
+
 	// Fetch metadata if configured
 	if station.MetadataURL != "" {
 		r.metadata.FetchMetadata(stationName, station, stationDir, timestamp)
@@ -278,6 +282,23 @@ func (r *Recorder) validateRecording(recordingPath string, expectedBitrate int, 
 	return nil
 }
 
+// generatePeaks generates waveform peaks data for the recorded audio file
+func (r *Recorder) generatePeaks(recordingPath, stationName string) {
+	r.logger.Debug("generating peaks data", "station", stationName, "path", recordingPath)
+
+	// Create peaks generator
+	peaksGen := peaks.NewGenerator(r.logger)
+
+	// Generate and save peaks
+	peaksData, err := peaksGen.Generate(recordingPath, peaks.DefaultSamplesPerPixel)
+	if err != nil {
+		r.logger.Error("failed to generate peaks", "station", stationName, "error", err)
+		return
+	}
+
+	r.logger.Info("peaks data generated", "station", stationName, "path", peaks.GetPeaksFilePath(recordingPath), "data_points", len(peaksData.Data))
+}
+
 // cleanupOldFiles removes recordings older than the retention period
 func (r *Recorder) cleanupOldFiles(stationName string, keepDays int) error {
 	cutoff := time.Now().AddDate(0, 0, -keepDays)
@@ -333,6 +354,29 @@ func (r *Recorder) cleanupOldFiles(stationName string, keepDays int) error {
 				} else {
 					*target.counter++
 					r.logger.Debug("removed old "+target.description, "path", path, "timestamp", timestamp)
+
+					// For audio files, also remove associated metadata and peaks files
+					if target.description == "recording" {
+						// Remove metadata file
+						metaPath := utils.MetadataPath(r.config.RecordingsDirectory, stationName, timestamp)
+						if utils.FileExists(metaPath) {
+							if err := os.Remove(metaPath); err != nil {
+								r.logger.Warn("failed to remove metadata file", "path", metaPath, "error", err)
+							} else {
+								r.logger.Debug("removed metadata file", "path", metaPath)
+							}
+						}
+
+						// Remove peaks file
+						peaksPath := peaks.GetPeaksFilePath(path)
+						if utils.FileExists(peaksPath) {
+							if err := os.Remove(peaksPath); err != nil {
+								r.logger.Warn("failed to remove peaks file", "path", peaksPath, "error", err)
+							} else {
+								r.logger.Debug("removed peaks file", "path", peaksPath)
+							}
+						}
+					}
 				}
 			}
 			return nil
