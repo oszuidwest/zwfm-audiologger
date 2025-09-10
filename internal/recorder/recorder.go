@@ -5,50 +5,24 @@ import (
 	"context"
 	"log"
 	"os"
-	"sync"
-	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-// ActiveRecording represents an ongoing recording session
-type ActiveRecording struct {
-	Station   string
-	StartTime time.Time
-	Process   *os.Process
-	Cancel    context.CancelFunc
-}
-
 // Manager handles recording operations
 type Manager struct {
-	config           *config.Config
-	metadataFetcher  *metadata.Fetcher
-	activeRecordings map[string]*ActiveRecording
-	mu               sync.Mutex
+	config          *config.Config
+	metadataFetcher *metadata.Fetcher
 }
 
 // New creates a new recording manager
 func New(cfg *config.Config) *Manager {
 	return &Manager{
-		config:           cfg,
-		metadataFetcher:  metadata.New(),
-		activeRecordings: make(map[string]*ActiveRecording),
+		config:          cfg,
+		metadataFetcher: metadata.New(),
 	}
-}
-
-// ActiveRecordings returns a copy of active recordings
-func (m *Manager) ActiveRecordings() map[string]ActiveRecording {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Simple map copy instead of generic CloneMap
-	result := make(map[string]ActiveRecording)
-	for k, v := range m.activeRecordings {
-		result[k] = *v
-	}
-	return result
 }
 
 // Scheduled performs a scheduled recording (1 hour duration)
@@ -82,7 +56,7 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
 
 	if err := os.Rename(tempFile, finalFile); err != nil {
-		log.Printf("Failed to %s: %v", "rename recording", err)
+		log.Printf("Failed to rename recording: %v", err)
 		return
 	}
 
@@ -136,7 +110,7 @@ func (m *Manager) Test(ctx context.Context) {
 		finalFile := utils.RecordingPath(m.config.RecordingsDir, name, "test-"+timestamp, format)
 
 		if err := os.Rename(tempFile, finalFile); err != nil {
-			log.Printf("Failed to %s: %v", "rename test recording", err)
+			log.Printf("Failed to rename test recording: %v", err)
 			continue
 		}
 

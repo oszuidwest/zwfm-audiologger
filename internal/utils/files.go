@@ -11,6 +11,7 @@ import (
 	"strings"
 )
 
+// supportedExtensions lists all audio file extensions supported by the recording system.
 var supportedExtensions = []string{".mp3", ".aac", ".m4a", ".ogg", ".opus", ".flac", ".wav"}
 
 // EnsureDir creates a directory and all parent directories if they don't exist
@@ -31,34 +32,39 @@ func StationDir(recordingsDir, stationName string) string {
 	return filepath.Join(recordingsDir, stationName)
 }
 
-// FindRecordingFile looks for a recording file with modern error handling
+// FindRecordingFile looks for a recording file using Go 1.25's enhanced fs.Glob
 func FindRecordingFile(recordingsDir, stationName, timestamp string) (string, error) {
 	// Check for temporary .rec file first (in case rename failed)
 	recPath := RecordingPath(recordingsDir, stationName, timestamp, ".rec")
-	if info, err := os.Stat(recPath); err == nil && !info.IsDir() {
+	if info, err := os.Stat(recPath); err == nil && info.Mode().IsRegular() {
 		return recPath, nil
 	}
 
-	// Use Go 1.25's improved error handling
-	var foundFiles []string
+	// Use Go 1.25's fs.Glob for efficient file pattern matching
+	stationDir := StationDir(recordingsDir, stationName)
+	fsys := os.DirFS(stationDir)
 
-	for _, ext := range supportedExtensions {
-		path := RecordingPath(recordingsDir, stationName, timestamp, ext)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			foundFiles = append(foundFiles, path)
+	// Create glob pattern for the timestamp with any supported extension
+	pattern := timestamp + ".*"
+
+	matches, err := fs.Glob(fsys, pattern)
+	if err != nil {
+		return "", fmt.Errorf("failed to glob files: %w", err)
+	}
+
+	if len(matches) == 0 {
+		return "", fs.ErrNotExist
+	}
+
+	// Filter matches to only supported extensions and return first match
+	for _, match := range matches {
+		ext := filepath.Ext(match)
+		if slices.Contains(supportedExtensions, ext) {
+			return filepath.Join(stationDir, match), nil
 		}
 	}
 
-	switch len(foundFiles) {
-	case 0:
-		return "", fs.ErrNotExist
-	case 1:
-		return foundFiles[0], nil
-	default:
-		// Multiple files found - return the first supported one
-		slices.Sort(foundFiles) // Deterministic ordering
-		return foundFiles[0], nil
-	}
+	return "", fs.ErrNotExist
 }
 
 // Extension returns the extension of a file path

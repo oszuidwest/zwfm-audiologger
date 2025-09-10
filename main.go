@@ -24,7 +24,18 @@ func init() {
 	// Go 1.25+ automatically handles container CPU limits for GOMAXPROCS
 	// This provides optimal performance in containerized environments
 	maxProcs := runtime.GOMAXPROCS(0)
-	log.Printf("Starting with GOMAXPROCS=%d (Go %s)", maxProcs, runtime.Version())
+	numCPU := runtime.NumCPU()
+
+	log.Printf("Starting with GOMAXPROCS=%d, NumCPU=%d (Go %s)",
+		maxProcs, numCPU, runtime.Version())
+
+	// Enhanced container detection logging for debugging
+	if maxProcs != numCPU {
+		log.Printf("Container CPU limit detected: using %d of %d available CPUs", maxProcs, numCPU)
+		log.Printf("This indicates the application is running in a containerized environment with CPU constraints")
+	} else {
+		log.Printf("Using all available CPUs - running on bare metal or unrestricted container")
+	}
 }
 
 func main() {
@@ -67,26 +78,22 @@ func main() {
 		return
 	}
 
-	// Start components
+	// Start components using Go 1.25's WaitGroup.Go() for cleaner goroutine management
 	var wg sync.WaitGroup
 
 	// Start HTTP server for trigger endpoints
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		httpServer := server.New(cfg, recorderManager, postProcessor)
 		if err := httpServer.Start(); err != nil {
 			log.Printf("HTTP server error: %v", err)
 		}
-	}()
+	})
 
 	// Start scheduler for ALL stations (always record as failsafe)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		sched := scheduler.New(cfg, recorderManager, postProcessor)
 		sched.Start(ctx)
-	}()
+	})
 
 	// Wait for all components to finish
 	wg.Wait()

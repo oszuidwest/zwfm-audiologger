@@ -1,4 +1,4 @@
-// Package scheduler handles cron-like scheduling for recordings and cleanup
+// Package scheduler handles scheduling for recordings and cleanup
 package scheduler
 
 import (
@@ -6,9 +6,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/flc1125/go-cron/middleware/recovery/v4"
-	cron "github.com/flc1125/go-cron/v4"
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
@@ -20,31 +19,18 @@ type Scheduler struct {
 	config        *config.Config
 	recorder      *recorder.Manager
 	postProcessor *postprocessor.Manager
-	cron          *cron.Cron
-	ctx           context.Context
-	cancel        context.CancelFunc
 }
 
 // New creates a new scheduler
 func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Scheduler {
-	ctx, cancel := context.WithCancel(context.Background())
-	c := cron.New(
-		cron.WithContext(ctx),
-		cron.WithMiddleware(
-			recovery.New(), // Recover from panics in cron jobs
-		),
-	)
 	return &Scheduler{
 		config:        cfg,
 		recorder:      rec,
 		postProcessor: pp,
-		cron:          c,
-		ctx:           ctx,
-		cancel:        cancel,
 	}
 }
 
-// Start begins the scheduling using cron
+// Start begins the scheduling using time-based scheduling
 func (s *Scheduler) Start(ctx context.Context) {
 	// Process any pending recordings on startup
 	go func() {
@@ -53,43 +39,110 @@ func (s *Scheduler) Start(ctx context.Context) {
 		}
 	}()
 
-	// Schedule hourly recordings for all stations (at the top of every hour)
+	// Log scheduled stations
 	for name, station := range s.config.Stations {
-		stationName, stationConfig := name, station
-		if jobID, err := s.cron.AddFunc("0 * * * *", func(ctx context.Context) error {
-			s.recordAndProcess(stationName, stationConfig)
-			return nil
-		}); err != nil {
-			log.Printf("Failed to schedule hourly recording for %s: %v", name, err)
-			continue
-		} else {
-			log.Printf("Scheduled %s for hourly recording (job ID: %v): %s", name, jobID, station.StreamURL)
-		}
+		log.Printf("Scheduled %s for hourly recording: %s", name, station.StreamURL)
 	}
-
-	// Schedule daily cleanup at midnight
-	if jobID, err := s.cron.AddFunc("0 0 * * *", func(ctx context.Context) error {
-		s.cleanupOldRecordings()
-		return nil
-	}); err != nil {
-		log.Printf("Failed to schedule daily cleanup: %v", err)
-	} else {
-		log.Printf("Scheduled daily cleanup at midnight (job ID: %v)", jobID)
-	}
+	log.Printf("Scheduled daily cleanup at midnight")
 
 	log.Println("Scheduler started. Press Ctrl+C to stop.")
 
-	// Start the cron scheduler
-	s.cron.Start()
+	// Start the scheduling loops
+	go s.runHourlyRecordings(ctx)
+	go s.runDailyCleanup(ctx)
 
 	// Wait for context cancellation
 	<-ctx.Done()
 	log.Println("Shutting down scheduler...")
-
-	// Cancel the scheduler context and stop
-	s.cancel()
-	s.cron.Stop()
 	log.Println("Scheduler stopped.")
+}
+
+// runHourlyRecordings runs recordings at the top of every hour
+func (s *Scheduler) runHourlyRecordings(ctx context.Context) {
+	// Calculate time until next hour
+	now := utils.Now()
+	nextHour := now.Truncate(time.Hour).Add(time.Hour)
+	timeUntilNextHour := nextHour.Sub(now)
+
+	// Wait until the top of the next hour
+	select {
+	case <-time.After(timeUntilNextHour):
+		// Fall through to start the hourly ticker
+	case <-ctx.Done():
+		return
+	}
+
+	// Create a ticker for every hour
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	// Run recordings immediately at the hour, then every hour
+	s.runAllRecordings()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.runAllRecordings()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// runAllRecordings records all configured stations
+func (s *Scheduler) runAllRecordings() {
+	for name, station := range s.config.Stations {
+		go func(stationName string, stationConfig config.Station) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Panic in recording %s: %v", stationName, r)
+				}
+			}()
+			s.recordAndProcess(stationName, stationConfig)
+		}(name, station)
+	}
+}
+
+// runDailyCleanup runs cleanup at midnight every day
+func (s *Scheduler) runDailyCleanup(ctx context.Context) {
+	// Calculate time until next midnight
+	now := utils.Now()
+	nextMidnight := now.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	timeUntilMidnight := nextMidnight.Sub(now)
+
+	// Wait until midnight
+	select {
+	case <-time.After(timeUntilMidnight):
+		// Fall through to start the daily ticker
+	case <-ctx.Done():
+		return
+	}
+
+	// Create a ticker for every 24 hours
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	// Run cleanup immediately at midnight, then every day
+	s.runCleanup()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.runCleanup()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// runCleanup runs the cleanup with panic recovery
+func (s *Scheduler) runCleanup() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic in cleanup: %v", r)
+		}
+	}()
+	s.cleanupOldRecordings()
 }
 
 // recordAndProcess handles recording and post-processing

@@ -61,25 +61,25 @@ func Format(filePath string) string {
 	return ".mp3" // Default fallback
 }
 
+// contentTypeMap holds MIME types for audio extensions for efficient lookup.
+var contentTypeMap = map[string]string{
+	".mp3":  "audio/mpeg",
+	".aac":  "audio/aac",
+	".m4a":  "audio/aac",
+	".ogg":  "audio/ogg",
+	".opus": "audio/opus",
+	".flac": "audio/flac",
+	".wav":  "audio/wav",
+	".rec":  "application/octet-stream",
+}
+
 // ContentType returns the appropriate MIME type for an audio file extension.
 // It supports common audio formats including MP3, AAC, OGG, OPUS, FLAC, and WAV.
+// Uses map lookup for better performance than switch statement.
 func ContentType(extension string) string {
-	switch strings.ToLower(extension) {
-	case ".mp3":
-		return "audio/mpeg"
-	case ".aac", ".m4a":
-		return "audio/aac"
-	case ".ogg":
-		return "audio/ogg"
-	case ".opus":
-		return "audio/opus"
-	case ".flac":
-		return "audio/flac"
-	case ".wav":
-		return "audio/wav"
-	case ".rec":
-		return "application/octet-stream"
-	default:
-		return "application/octet-stream"
+	ext := strings.ToLower(extension)
+	if mimeType, ok := contentTypeMap[ext]; ok {
+		return mimeType
 	}
+	return "application/octet-stream"
 }

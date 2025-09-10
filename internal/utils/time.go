@@ -6,14 +6,14 @@ import (
 )
 
 const (
-	// HourlyTimestampFormat is the standard format for hourly timestamps
+	// HourlyTimestampFormat is the standard format for hourly timestamps.
 	HourlyTimestampFormat = "2006-01-02-15"
-	// TestTimestampFormat is the format used for test recordings
+	// TestTimestampFormat is the format used for test recordings.
 	TestTimestampFormat = "2006-01-02-15-04-05"
 )
 
 var (
-	// AppTimezone holds the application timezone location
+	// AppTimezone holds the application timezone location.
 	AppTimezone *time.Location = time.UTC
 )
 

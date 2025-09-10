@@ -1,12 +1,10 @@
-// Package config handles application configuration loading and validation
+// Package config handles application configuration loading
 package config
 
 import (
+	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"strings"
-
-	"github.com/spf13/viper"
+	"os"
 )
 
 // Config represents the application configuration
@@ -27,38 +25,39 @@ type Station struct {
 	ParseMetadata bool   `json:"parse_metadata,omitempty"`
 }
 
-// Load reads and parses the configuration from a JSON file using Viper.
-// It supports JSON configuration files and provides sensible defaults
-// for missing configuration values.
+// Load reads and parses the configuration from a JSON file using streaming decoder.
+// It provides sensible defaults for missing configuration values.
+// Uses Go 1.25's enhanced JSON streaming performance for better memory efficiency.
 func Load(path string) (*Config, error) {
-	v := viper.New()
+	// Open file for streaming JSON decoding
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open config file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
 
-	// Set defaults
-	v.SetDefault("recordings_dir", "/var/audio")
-	v.SetDefault("keep_days", 31)
-	v.SetDefault("port", 8080)
-	v.SetDefault("timezone", "UTC")
+	var config Config
 
-	// Configure viper
-	dir := filepath.Dir(path)
-	fileName := filepath.Base(path)
-	ext := filepath.Ext(fileName)
-	name := strings.TrimSuffix(fileName, ext)
+	// Use streaming JSON decoder for better performance and memory efficiency
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields() // Strict validation - fail on unexpected fields
 
-	v.SetConfigName(name)
-	v.SetConfigType(strings.TrimPrefix(ext, "."))
-	v.AddConfigPath(dir)
-	v.AddConfigPath(".")
-
-	// Read config file
-	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+	if err := decoder.Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Unmarshal into struct
-	var config Config
-	if err := v.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+	// Set defaults for missing values
+	if config.RecordingsDir == "" {
+		config.RecordingsDir = "/var/audio"
+	}
+	if config.KeepDays == 0 {
+		config.KeepDays = 31
+	}
+	if config.Port == 0 {
+		config.Port = 8080
+	}
+	if config.Timezone == "" {
+		config.Timezone = "UTC"
 	}
 
 	return &config, nil

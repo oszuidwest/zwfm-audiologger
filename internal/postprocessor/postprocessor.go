@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
@@ -25,73 +24,58 @@ type Recording struct {
 // Manager handles post-processing of recordings
 type Manager struct {
 	recordingsDir string
-	recordings    map[string]*Recording // Key: "station-hour"
-	mu            sync.RWMutex
 }
 
 // New creates a new post-processor manager
 func New(recordingsDir string) *Manager {
 	return &Manager{
 		recordingsDir: recordingsDir,
-		recordings:    make(map[string]*Recording),
 	}
 }
 
 // MarkProgramStart marks when a program starts (commercials end)
 func (m *Manager) MarkProgramStart(station string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	now := utils.Now()
 	hour := now.Format(utils.HourlyTimestampFormat)
-	key := fmt.Sprintf("%s-%s", station, hour)
 
-	// Create or update recording with start time
-	if m.recordings[key] == nil {
-		m.recordings[key] = &Recording{
+	// Load existing recording or create new one
+	recording := m.loadRecording(station, hour)
+	if recording == nil {
+		recording = &Recording{
 			StartTime: now,
 			Station:   station,
 			Hour:      hour,
 		}
 	} else {
 		// Update start time if recording already exists
-		m.recordings[key].StartTime = now
+		recording.StartTime = now
 	}
 
 	log.Printf("Program started for %s at %s", station, now.Format("15:04:05"))
 
-	// Save recording info to file for persistence
-	m.saveRecordingInfo(station, hour)
+	// Save recording info to file
+	m.saveRecording(recording)
 }
 
 // MarkProgramEnd marks when a program ends (commercials start)
 func (m *Manager) MarkProgramEnd(station string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	now := utils.Now()
 	hour := now.Format(utils.HourlyTimestampFormat)
-	key := fmt.Sprintf("%s-%s", station, hour)
 
-	// Update the recording's end time
-	if recording, exists := m.recordings[key]; exists {
+	// Load existing recording
+	recording := m.loadRecording(station, hour)
+	if recording != nil {
 		recording.EndTime = now
-
 		log.Printf("Program ended for %s at %s", station, now.Format("15:04:05"))
-
-		// Save recording info to file for persistence
-		m.saveRecordingInfo(station, hour)
+		// Save recording info to file
+		m.saveRecording(recording)
 	}
 }
 
 // ProcessRecording processes a completed hourly recording to remove commercials
 func (m *Manager) ProcessRecording(station, hour string) error {
-	m.mu.RLock()
-	key := fmt.Sprintf("%s-%s", station, hour)
-	recording, exists := m.recordings[key]
-	m.mu.RUnlock()
-
-	if !exists || recording == nil {
+	recording := m.loadRecording(station, hour)
+	if recording == nil {
 		log.Printf("No recording info found for %s hour %s, keeping full recording", station, hour)
 		return nil
 	}
@@ -158,25 +142,19 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 
 	log.Printf("Processed recording: %s (original backed up as %s)", inputFile, originalBackup)
 
-	// Clean up recording data after processing
-	m.mu.Lock()
-	delete(m.recordings, key)
-	m.mu.Unlock()
+	// Processing complete - JSON file remains for reference
 
 	return nil
 }
 
-// saveRecordingInfo saves recording information to a JSON file for persistence
-func (m *Manager) saveRecordingInfo(station, hour string) {
-	key := fmt.Sprintf("%s-%s", station, hour)
-	recording := m.recordings[key]
-
+// saveRecording saves recording information to a JSON file
+func (m *Manager) saveRecording(recording *Recording) {
 	if recording == nil {
 		return
 	}
 
 	// Save to a JSON file alongside the recording
-	recordingFile := utils.RecordingPath(m.recordingsDir, station, hour, ".recording.json")
+	recordingFile := utils.RecordingPath(m.recordingsDir, recording.Station, recording.Hour, ".recording.json")
 
 	data, err := json.MarshalIndent(recording, "", "  ")
 	if err != nil {
@@ -192,30 +170,21 @@ func (m *Manager) saveRecordingInfo(station, hour string) {
 	log.Printf("Saved recording info to %s", recordingFile)
 }
 
-// LoadInfo loads saved recording information from disk
-func (m *Manager) LoadInfo(station, hour string) error {
+// loadRecording loads recording information from disk
+func (m *Manager) loadRecording(station, hour string) *Recording {
 	recordingFile := utils.RecordingPath(m.recordingsDir, station, hour, ".recording.json")
 
 	data, err := os.ReadFile(recordingFile)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // No recording file is fine
-		}
-		return err
+		return nil // No recording file
 	}
 
 	var recording Recording
 	if err := json.Unmarshal(data, &recording); err != nil {
-		return err
+		return nil
 	}
 
-	m.mu.Lock()
-	key := fmt.Sprintf("%s-%s", station, hour)
-	m.recordings[key] = &recording
-	m.mu.Unlock()
-
-	log.Printf("Loaded recording info for %s hour %s", station, hour)
-	return nil
+	return &recording
 }
 
 // ProcessPendingRecordings processes any recordings that have recording info but haven't been processed yet
@@ -259,12 +228,10 @@ func (m *Manager) ProcessPendingRecordings() error {
 				continue // No recording file found
 			}
 
-			// Load recording info and process
-			if err := m.LoadInfo(stationDir.Name(), hour); err == nil {
-				log.Printf("Processing pending recording: %s %s", stationDir.Name(), hour)
-				if err := m.ProcessRecording(stationDir.Name(), hour); err != nil {
-					log.Printf("Failed to process pending recording %s %s: %v", stationDir.Name(), hour, err)
-				}
+			// Process recording (it will load the info directly)
+			log.Printf("Processing pending recording: %s %s", stationDir.Name(), hour)
+			if err := m.ProcessRecording(stationDir.Name(), hour); err != nil {
+				log.Printf("Failed to process pending recording %s %s: %v", stationDir.Name(), hour, err)
 			}
 		}
 	}
