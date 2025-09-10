@@ -46,7 +46,7 @@ WORKDIR /app
 COPY --from=builder /app/audiologger .
 
 # Copy configuration template
-COPY streams.json .
+COPY config.json .
 
 # Create directories with proper permissions
 RUN mkdir -p /var/audio /var/log && \
