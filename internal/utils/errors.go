@@ -27,5 +27,15 @@ func LogError(ctx context.Context, action string, err error, attrs ...slog.Attr)
 
 // LogErrorContinue logs an error but continues execution (doesn't return error)
 func LogErrorContinue(ctx context.Context, action string, err error, attrs ...slog.Attr) {
-	LogError(ctx, action, err, attrs...)
+	formattedErr := fmt.Errorf("failed to %s: %w", action, err)
+
+	logAttrs := []any{
+		slog.String("action", action),
+		slog.Any("error", err),
+	}
+	for _, attr := range attrs {
+		logAttrs = append(logAttrs, attr)
+	}
+
+	defaultLogger.ErrorContext(ctx, formattedErr.Error(), logAttrs...)
 }

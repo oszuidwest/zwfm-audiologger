@@ -242,11 +242,15 @@ func (m *Manager) ProcessPendingRecordings() error {
 			if filepath.Ext(file.Name()) != ".json" || !strings.Contains(file.Name(), ".recording.json") {
 				continue
 			}
-			
+
 			hour := strings.TrimSuffix(file.Name(), ".recording.json")
 
 			// Check if we have an original backup (means it was already processed)
-			originalFiles, _ := filepath.Glob(filepath.Join(stationPath, hour+".original.*"))
+			originalFiles, err := filepath.Glob(filepath.Join(stationPath, hour+".original.*"))
+			if err != nil {
+				log.Printf("Invalid glob pattern for %s: %v", hour, err)
+				continue
+			}
 			if len(originalFiles) > 0 {
 				continue // Already processed
 			}
