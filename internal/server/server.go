@@ -22,7 +22,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-// directoryTemplate uses sync.OnceValue for efficient template compilation (Go 1.21+)
+// directoryTemplate provides HTML template for directory listings
 var directoryTemplate = sync.OnceValue(func() *template.Template {
 	tmpl := `<!DOCTYPE html>
 <html>
@@ -65,6 +65,7 @@ var directoryTemplate = sync.OnceValue(func() *template.Template {
 </html>`
 
 	t, err := template.New("listing").Parse(tmpl)
+	if err != nil {
 		panic(fmt.Sprintf("template parse error: %v", err))
 	}
 	return t
@@ -161,12 +162,12 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	}
 }
 
-// extractStation extracts station name from URL path using efficient string parsing
+// extractStation extracts station name from URL path
 func extractStation(path string) string {
-	// Use strings.Cut for more efficient parsing (Go 1.18+)
+	// Parse URL path components
 	path = strings.Trim(path, "/")
 
-	// Use strings.Cut to split efficiently
+	// Extract action and station from path
 	prefix, rest, found := strings.Cut(path, "/")
 	if !found || prefix != "program" {
 		return ""
@@ -365,8 +366,7 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, r *http.Request, fs
 		return
 	}
 
-	// Build file list with pre-allocated slice for better memory efficiency (Go 1.25 optimization)
-	// Pre-allocate with known capacity: entries + potential parent directory
+	// Build file list for directory contents
 	capacity := len(entries)
 	if urlPath != "/" {
 		capacity++ // Add space for parent directory
@@ -415,7 +415,7 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, r *http.Request, fs
 		return files[i].Name < files[j].Name
 	})
 
-	// Use pre-compiled template for better performance
+	// Render directory listing using template
 	t := directoryTemplate()
 
 	data := struct {

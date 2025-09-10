@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
-	_ "time/tzdata" // Embed timezone data for consistent behavior
+	_ "time/tzdata" // Ensures timezone functionality across all platforms
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
@@ -21,15 +21,14 @@ import (
 )
 
 func init() {
-	// Go 1.25+ automatically handles container CPU limits for GOMAXPROCS
-	// This provides optimal performance in containerized environments
+	// Configure maximum processor count for concurrent operations
 	maxProcs := runtime.GOMAXPROCS(0)
 	numCPU := runtime.NumCPU()
 
 	log.Printf("Starting with GOMAXPROCS=%d, NumCPU=%d (Go %s)",
 		maxProcs, numCPU, runtime.Version())
 
-	// Enhanced container detection logging for debugging
+	// Log CPU configuration for monitoring resource allocation
 	if maxProcs != numCPU {
 		log.Printf("Container CPU limit detected: using %d of %d available CPUs", maxProcs, numCPU)
 		log.Printf("This indicates the application is running in a containerized environment with CPU constraints")
@@ -78,7 +77,7 @@ func main() {
 		return
 	}
 
-	// Start components using Go 1.25's WaitGroup.Go() for cleaner goroutine management
+	// Start components concurrently using goroutines
 	var wg sync.WaitGroup
 
 	// Start HTTP server for trigger endpoints

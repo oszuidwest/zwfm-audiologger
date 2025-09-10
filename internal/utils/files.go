@@ -32,7 +32,7 @@ func StationDir(recordingsDir, stationName string) string {
 	return filepath.Join(recordingsDir, stationName)
 }
 
-// FindRecordingFile looks for a recording file using Go 1.25's enhanced fs.Glob
+// FindRecordingFile locates a recording file by timestamp and station
 func FindRecordingFile(recordingsDir, stationName, timestamp string) (string, error) {
 	// Check for temporary .rec file first (in case rename failed)
 	recPath := RecordingPath(recordingsDir, stationName, timestamp, ".rec")
@@ -40,7 +40,7 @@ func FindRecordingFile(recordingsDir, stationName, timestamp string) (string, er
 		return recPath, nil
 	}
 
-	// Use Go 1.25's fs.Glob for efficient file pattern matching
+	// Search for files matching the timestamp pattern
 	stationDir := StationDir(recordingsDir, stationName)
 	fsys := os.DirFS(stationDir)
 

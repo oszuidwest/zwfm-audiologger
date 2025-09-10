@@ -25,9 +25,7 @@ type Station struct {
 	ParseMetadata bool   `json:"parse_metadata,omitempty"`
 }
 
-// Load reads and parses the configuration from a JSON file using streaming decoder.
-// It provides sensible defaults for missing configuration values.
-// Uses Go 1.25's enhanced JSON streaming performance for better memory efficiency.
+// Load reads and parses the configuration from a JSON file and applies sensible defaults for missing values.
 func Load(path string) (*Config, error) {
 	// Open file for streaming JSON decoding
 	file, err := os.Open(path)
@@ -38,7 +36,7 @@ func Load(path string) (*Config, error) {
 
 	var config Config
 
-	// Use streaming JSON decoder for better performance and memory efficiency
+	// Parse JSON configuration from file
 	decoder := json.NewDecoder(file)
 	decoder.DisallowUnknownFields() // Strict validation - fail on unexpected fields
 
