@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -23,19 +22,17 @@ import (
 
 // Server handles HTTP requests for recording control
 type Server struct {
-	config          *config.Config
-	recorder        *recorder.Manager
-	postProcessor   *postprocessor.Manager
-	responseBuilder *utils.ResponseBuilder
+	config        *config.Config
+	recorder      *recorder.Manager
+	postProcessor *postprocessor.Manager
 }
 
 // New creates a new HTTP server
 func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Server {
 	return &Server{
-		config:          cfg,
-		recorder:        rec,
-		postProcessor:   pp,
-		responseBuilder: utils.NewResponseBuilder(),
+		config:        cfg,
+		recorder:      rec,
+		postProcessor: pp,
 	}
 }
 
@@ -45,9 +42,9 @@ func (s *Server) Start() error {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
-	// Program marking endpoints with auth middleware
+	// Program marking endpoints with simple auth
 	auth := r.Group("/")
-	auth.Use(s.authMiddleware())
+	auth.Use(s.authenticate())
 	auth.POST("/program/start/:station", s.handleProgramStart)
 	auth.POST("/program/stop/:station", s.handleProgramStop)
 
@@ -92,7 +89,7 @@ func (s *Server) handleHealth(c *gin.Context) {
 func (s *Server) handleProgramStart(c *gin.Context) {
 	station := c.Param("station")
 	if station == "" {
-		s.responseBuilder.BadRequest(c, "Station name required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Station name required"})
 		return
 	}
 
@@ -104,7 +101,7 @@ func (s *Server) handleProgramStart(c *gin.Context) {
 func (s *Server) handleProgramStop(c *gin.Context) {
 	station := c.Param("station")
 	if station == "" {
-		s.responseBuilder.BadRequest(c, "Station name required")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Station name required"})
 		return
 	}
 
@@ -112,61 +109,40 @@ func (s *Server) handleProgramStop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Marked program end for %s", station)})
 }
 
-// authMiddleware provides authentication middleware for Gin
-func (s *Server) authMiddleware() gin.HandlerFunc {
+// authenticate provides simple authentication middleware
+func (s *Server) authenticate() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get the station from the URL parameter
 		station := c.Param("station")
 
 		// Check if station exists in config
 		stationConfig, exists := s.config.Stations[station]
 		if !exists {
-			s.responseBuilder.NotFound(c, "Unknown station")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Unknown station"})
 			c.Abort()
 			return
 		}
 
-		// Require station-specific API secret
+		// Simple API key check
 		expectedSecret := stationConfig.APISecret
 		if expectedSecret == "" {
-			s.responseBuilder.Unauthorized(c)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "No API secret configured"})
 			c.Abort()
 			return
 		}
 
-		// Check Authorization header
-		authHeader := c.GetHeader("Authorization")
-		if authHeader != "" {
-			// Support "Bearer <secret>" format
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token := strings.TrimPrefix(authHeader, "Bearer ")
-				if token == expectedSecret {
-					c.Next()
-					return
-				}
-			}
-			// Also support just the secret directly
-			if authHeader == expectedSecret {
-				c.Next()
-				return
-			}
-		}
-
-		// Check X-API-Key header
-		apiKey := c.GetHeader("X-API-Key")
-		if apiKey == expectedSecret {
+		// Check X-API-Key header (most common pattern)
+		if c.GetHeader("X-API-Key") == expectedSecret {
 			c.Next()
 			return
 		}
 
-		// Check query parameter as fallback
-		secret := c.Query("secret")
-		if secret == expectedSecret {
+		// Check query parameter as fallback for simple curl commands
+		if c.Query("secret") == expectedSecret {
 			c.Next()
 			return
 		}
 
-		s.responseBuilder.Unauthorized(c)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
 		c.Abort()
 	}
 }
@@ -188,17 +164,17 @@ func (s *Server) handleRecordings(c *gin.Context) {
 		urlPath = "/"
 	}
 
-	// Construct the filesystem path
+	// Simple path construction - recordings are controlled by the system
 	fsPath := filepath.Join(s.config.RecordingsDir, filepath.Clean(urlPath))
 
 	// Get file info
 	info, err := os.Stat(fsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.responseBuilder.NotFound(c, "File not found")
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
 			return
 		}
-		s.responseBuilder.InternalError(c, err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -234,7 +210,7 @@ func (s *Server) showDirectoryListing(c *gin.Context, fsPath, urlPath string) {
 	// Read directory
 	entries, err := os.ReadDir(fsPath)
 	if err != nil {
-		s.responseBuilder.InternalError(c, err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -326,7 +302,7 @@ func (s *Server) showDirectoryListing(c *gin.Context, fsPath, urlPath string) {
 
 	t, err := template.New("listing").Parse(tmpl)
 	if err != nil {
-		s.responseBuilder.InternalError(c, err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 

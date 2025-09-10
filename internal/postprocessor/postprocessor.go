@@ -2,7 +2,6 @@
 package postprocessor
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -181,12 +180,12 @@ func (m *Manager) saveRecordingInfo(station, hour string) {
 
 	data, err := json.MarshalIndent(recording, "", "  ")
 	if err != nil {
-		utils.LogErrorContinue(context.Background(), "marshal recording", err)
+		log.Printf("Failed to marshal recording: %v", err)
 		return
 	}
 
 	if err := os.WriteFile(recordingFile, data, 0o644); err != nil {
-		utils.LogErrorContinue(context.Background(), "save recording info", err)
+		log.Printf("Failed to save recording info: %v", err)
 		return
 	}
 

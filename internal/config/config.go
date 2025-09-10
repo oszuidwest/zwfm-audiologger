@@ -2,11 +2,10 @@
 package config
 
 import (
-	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"github.com/spf13/viper"
 )
 
@@ -53,13 +52,13 @@ func Load(path string) (*Config, error) {
 
 	// Read config file
 	if err := v.ReadInConfig(); err != nil {
-		return nil, utils.LogError(context.Background(), "read config file", err)
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	// Unmarshal into struct
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
-		return nil, utils.LogError(context.Background(), "parse config", err)
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	return &config, nil

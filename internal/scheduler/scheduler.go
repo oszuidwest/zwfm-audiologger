@@ -3,7 +3,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -115,7 +114,7 @@ func (s *Scheduler) cleanupOldRecordings() {
 		dir := utils.StationDir(s.config.RecordingsDir, station)
 		files, err := os.ReadDir(dir)
 		if err != nil {
-			utils.LogErrorContinue(context.Background(), fmt.Sprintf("read directory %s", dir), err)
+			log.Printf("Failed to read directory %s: %v", dir, err)
 			continue
 		}
 

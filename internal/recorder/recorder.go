@@ -3,7 +3,6 @@ package recorder
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -44,14 +43,19 @@ func (m *Manager) ActiveRecordings() map[string]ActiveRecording {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return utils.CloneMap(m.activeRecordings)
+	// Simple map copy instead of generic CloneMap
+	result := make(map[string]ActiveRecording)
+	for k, v := range m.activeRecordings {
+		result[k] = *v
+	}
+	return result
 }
 
 // Scheduled performs a scheduled recording (1 hour duration)
 func (m *Manager) Scheduled(name string, station config.Station) {
 	dir := utils.StationDir(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
-		utils.LogErrorContinue(context.Background(), fmt.Sprintf("create directory for %s", name), err)
+		log.Printf("Failed to create directory for %s: %v", name, err)
 		return
 	}
 
@@ -69,7 +73,7 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 	cmd := utils.RecordCommand(context.Background(), station.StreamURL, "3600", tempFile)
 
 	if err := cmd.Run(); err != nil {
-		utils.LogErrorContinue(context.Background(), fmt.Sprintf("recording for %s", name), err)
+		log.Printf("Failed recording for %s: %v", name, err)
 		return
 	}
 
@@ -78,7 +82,7 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
 
 	if err := os.Rename(tempFile, finalFile); err != nil {
-		utils.LogErrorContinue(context.Background(), "rename recording", err)
+		log.Printf("Failed to %s: %v", "rename recording", err)
 		return
 	}
 
@@ -96,7 +100,7 @@ func (m *Manager) saveMetadata(stationName string, station config.Station, times
 	if meta != "" {
 		metaFile := utils.RecordingPath(m.config.RecordingsDir, stationName, timestamp, ".meta")
 		if err := os.WriteFile(metaFile, []byte(meta), 0o644); err != nil {
-			utils.LogErrorContinue(context.Background(), fmt.Sprintf("save metadata for %s", stationName), err)
+			log.Printf("Failed to save metadata for %s: %v", stationName, err)
 		} else {
 			log.Printf("Saved metadata for %s: %s", stationName, meta)
 		}
@@ -110,7 +114,7 @@ func (m *Manager) Test(ctx context.Context) {
 	for name, station := range m.config.Stations {
 		dir := utils.StationDir(m.config.RecordingsDir, name)
 		if err := utils.EnsureDir(dir); err != nil {
-			utils.LogErrorContinue(context.Background(), fmt.Sprintf("create directory for %s", name), err)
+			log.Printf("Failed to create directory for %s: %v", name, err)
 			continue
 		}
 
@@ -123,7 +127,7 @@ func (m *Manager) Test(ctx context.Context) {
 		cmd := utils.RecordCommand(ctx, station.StreamURL, "10", tempFile)
 
 		if err := cmd.Run(); err != nil {
-			utils.LogErrorContinue(context.Background(), fmt.Sprintf("test recording for %s", name), err)
+			log.Printf("Failed test recording for %s: %v", name, err)
 			continue
 		}
 
@@ -132,7 +136,7 @@ func (m *Manager) Test(ctx context.Context) {
 		finalFile := utils.RecordingPath(m.config.RecordingsDir, name, "test-"+timestamp, format)
 
 		if err := os.Rename(tempFile, finalFile); err != nil {
-			utils.LogErrorContinue(context.Background(), "rename test recording", err)
+			log.Printf("Failed to %s: %v", "rename test recording", err)
 			continue
 		}
 

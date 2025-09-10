@@ -2,14 +2,12 @@
 package metadata
 
 import (
-	"context"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"github.com/tidwall/gjson"
 )
 
@@ -43,18 +41,18 @@ func (f *Fetcher) Fetch(url, jsonPath string, parseJSON bool) string {
 func (f *Fetcher) fetchRaw(url string) string {
 	resp, err := f.client.Get(url)
 	if err != nil {
-		utils.LogErrorContinue(context.Background(), "fetch metadata", err)
+		log.Printf("Failed to %s: %v", "fetch metadata", err)
 		return ""
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			utils.LogErrorContinue(context.Background(), "close response body", err)
+			log.Printf("Failed to %s: %v", "close response body", err)
 		}
 	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		utils.LogErrorContinue(context.Background(), "read metadata response", err)
+		log.Printf("Failed to %s: %v", "read metadata response", err)
 		return ""
 	}
 
@@ -65,18 +63,18 @@ func (f *Fetcher) fetchRaw(url string) string {
 func (f *Fetcher) fetchAndParseJSON(url, jsonPath string) string {
 	resp, err := f.client.Get(url)
 	if err != nil {
-		utils.LogErrorContinue(context.Background(), "fetch metadata", err)
+		log.Printf("Failed to %s: %v", "fetch metadata", err)
 		return ""
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			utils.LogErrorContinue(context.Background(), "close response body", err)
+			log.Printf("Failed to %s: %v", "close response body", err)
 		}
 	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		utils.LogErrorContinue(context.Background(), "read metadata response", err)
+		log.Printf("Failed to %s: %v", "read metadata response", err)
 		return ""
 	}
 
