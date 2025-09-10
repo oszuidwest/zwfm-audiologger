@@ -30,10 +30,10 @@ Create `config.json`:
 ```json
 {
   "recordings_dir": "/var/audio",
-  "port": 8090,
+  "port": 8080,
   "keep_days": 31,
+  "timezone": "Europe/Amsterdam",
   "stations": {
-      "parse_metadata": true,
     "station1": {
       "stream_url": "https://stream.example.com/station1",
       "api_secret": "station1-secret",
@@ -76,9 +76,9 @@ Create `config.json`:
 
 Each station requires its own API secret configured in the station settings. Authentication can be provided via:
 
-- **X-API-Key header**: `curl -H "X-API-Key: station1-secret" http://localhost:8090/program/start/station1`
-- **Authorization header**: `curl -H "Authorization: Bearer station1-secret" http://localhost:8090/program/start/station1`
-- **Query parameter**: `curl http://localhost:8090/program/start/station1?secret=station1-secret`
+- **X-API-Key header**: `curl -H "X-API-Key: station1-secret" http://localhost:8080/program/start/station1`
+- **Authorization header**: `curl -H "Authorization: Bearer station1-secret" http://localhost:8080/program/start/station1`
+- **Query parameter**: `curl http://localhost:8080/program/start/station1?secret=station1-secret`
 
 ## How It Works
 
@@ -113,7 +113,7 @@ services:
       - ./recordings:/var/audio
       - ./config.json:/config.json
     ports:
-      - "8090:8090"
+      - "8080:8080"
     restart: unless-stopped
 ```
 

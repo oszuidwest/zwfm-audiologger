@@ -1,3 +1,5 @@
+// Package utils provides audio format detection and content type utilities
+// using FFmpeg's ffprobe tool for accurate format identification.
 package utils
 
 import (
@@ -13,9 +15,10 @@ type ProbeResult struct {
 	} `json:"streams"`
 }
 
-// DetectFileFormat uses ffprobe to detect the format of a recorded file
-// Returns the appropriate file extension (e.g., ".mp3", ".aac", ".ogg")
-func DetectFileFormat(filePath string) string {
+// Format uses ffprobe to detect the actual format of a recorded audio file.
+// It returns the appropriate file extension based on the detected codec,
+// defaulting to ".mp3" if detection fails.
+func Format(filePath string) string {
 	// Run ffprobe on the file
 	cmd := exec.Command("ffprobe",
 		"-v", "quiet",
@@ -58,8 +61,9 @@ func DetectFileFormat(filePath string) string {
 	return ".mp3" // Default fallback
 }
 
-// GetContentType returns the appropriate MIME type for an audio format
-func GetContentType(extension string) string {
+// ContentType returns the appropriate MIME type for an audio file extension.
+// It supports common audio formats including MP3, AAC, OGG, OPUS, FLAC, and WAV.
+func ContentType(extension string) string {
 	switch strings.ToLower(extension) {
 	case ".mp3":
 		return "audio/mpeg"

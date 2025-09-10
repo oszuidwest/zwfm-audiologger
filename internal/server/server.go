@@ -23,17 +23,19 @@ import (
 
 // Server handles HTTP requests for recording control
 type Server struct {
-	config        *config.Config
-	recorder      *recorder.Manager
-	postProcessor *postprocessor.Manager
+	config          *config.Config
+	recorder        *recorder.Manager
+	postProcessor   *postprocessor.Manager
+	responseBuilder *utils.ResponseBuilder
 }
 
 // New creates a new HTTP server
 func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Server {
 	return &Server{
-		config:        cfg,
-		recorder:      rec,
-		postProcessor: pp,
+		config:          cfg,
+		recorder:        rec,
+		postProcessor:   pp,
+		responseBuilder: utils.NewResponseBuilder(),
 	}
 }
 
@@ -46,10 +48,8 @@ func (s *Server) Start() error {
 	// Program marking endpoints with auth middleware
 	auth := r.Group("/")
 	auth.Use(s.authMiddleware())
-	{
-		auth.POST("/program/start/:station", s.handleProgramStart)
-		auth.POST("/program/stop/:station", s.handleProgramStop)
-	}
+	auth.POST("/program/start/:station", s.handleProgramStart)
+	auth.POST("/program/stop/:station", s.handleProgramStop)
 
 	// Public endpoints
 	r.GET("/status", s.handleStatus)
@@ -76,7 +76,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 		status[name] = gin.H{
 			"recording": true,
 			"started":   rec.StartTime.Format(time.RFC3339),
-			"duration":  time.Since(rec.StartTime).String(),
+			"duration":  utils.Now().Sub(rec.StartTime).String(),
 		}
 	}
 
@@ -92,7 +92,7 @@ func (s *Server) handleHealth(c *gin.Context) {
 func (s *Server) handleProgramStart(c *gin.Context) {
 	station := c.Param("station")
 	if station == "" {
-		utils.RespondWithBadRequest(c, "Station name required")
+		s.responseBuilder.BadRequest(c, "Station name required")
 		return
 	}
 
@@ -104,7 +104,7 @@ func (s *Server) handleProgramStart(c *gin.Context) {
 func (s *Server) handleProgramStop(c *gin.Context) {
 	station := c.Param("station")
 	if station == "" {
-		utils.RespondWithBadRequest(c, "Station name required")
+		s.responseBuilder.BadRequest(c, "Station name required")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		// Check if station exists in config
 		stationConfig, exists := s.config.Stations[station]
 		if !exists {
-			utils.RespondWithNotFound(c, "Unknown station")
+			s.responseBuilder.NotFound(c, "Unknown station")
 			c.Abort()
 			return
 		}
@@ -129,7 +129,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		// Require station-specific API secret
 		expectedSecret := stationConfig.APISecret
 		if expectedSecret == "" {
-			utils.RespondWithUnauthorized(c)
+			s.responseBuilder.Unauthorized(c)
 			c.Abort()
 			return
 		}
@@ -166,7 +166,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		utils.RespondWithUnauthorized(c)
+		s.responseBuilder.Unauthorized(c)
 		c.Abort()
 	}
 }
@@ -195,10 +195,10 @@ func (s *Server) handleRecordings(c *gin.Context) {
 	info, err := os.Stat(fsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			utils.RespondWithNotFound(c, "File not found")
+			s.responseBuilder.NotFound(c, "File not found")
 			return
 		}
-		utils.RespondWithInternalError(c, err.Error())
+		s.responseBuilder.InternalError(c, err.Error())
 		return
 	}
 
@@ -206,18 +206,19 @@ func (s *Server) handleRecordings(c *gin.Context) {
 	if !info.IsDir() {
 		// Set content type based on file extension
 		ext := filepath.Ext(fsPath)
-		if ext == ".meta" {
+		switch ext {
+		case ".meta":
 			c.Header("Content-Type", "text/plain; charset=utf-8")
-		} else if ext == ".json" {
+		case ".json":
 			c.Header("Content-Type", "application/json")
-		} else {
+		default:
 			// Use the format utility for audio files
-			contentType := utils.GetContentType(ext)
+			contentType := utils.ContentType(ext)
 			c.Header("Content-Type", contentType)
 		}
 
 		// Set Content-Disposition for download
-		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", path.Base(fsPath)))
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(fsPath)))
 
 		// Serve the file
 		c.File(fsPath)
@@ -233,7 +234,7 @@ func (s *Server) showDirectoryListing(c *gin.Context, fsPath, urlPath string) {
 	// Read directory
 	entries, err := os.ReadDir(fsPath)
 	if err != nil {
-		utils.RespondWithInternalError(c, err.Error())
+		s.responseBuilder.InternalError(c, err.Error())
 		return
 	}
 
@@ -325,7 +326,7 @@ func (s *Server) showDirectoryListing(c *gin.Context, fsPath, urlPath string) {
 
 	t, err := template.New("listing").Parse(tmpl)
 	if err != nil {
-		utils.RespondWithInternalError(c, err.Error())
+		s.responseBuilder.InternalError(c, err.Error())
 		return
 	}
 
@@ -338,5 +339,7 @@ func (s *Server) showDirectoryListing(c *gin.Context, fsPath, urlPath string) {
 	}
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
-	t.Execute(c.Writer, data)
+	if err := t.Execute(c.Writer, data); err != nil {
+		log.Printf("Failed to execute template: %v", err)
+	}
 }

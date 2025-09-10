@@ -7,11 +7,11 @@ services:
       - "8080:8080"
     volumes:
       - audiologger-data:/var/audio
-      - ./streams.json:/app/streams.json:ro
+      - ./config.json:/app/config.json:ro
       - audiologger-logs:/var/log
     environment:
-      - CONFIG_FILE=/app/streams.json
       - TZ=Europe/Amsterdam
+    command: ["./audiologger", "-config", "/app/config.json"]
 
 volumes:
   audiologger-data:

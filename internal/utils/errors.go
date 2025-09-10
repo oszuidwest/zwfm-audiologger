@@ -2,18 +2,30 @@
 package utils
 
 import (
+	"context"
 	"fmt"
-	"log"
+	"log/slog"
 )
 
-// LogErrorf logs an error with a formatted message and returns a new error
-func LogErrorf(action string, err error) error {
+var defaultLogger = slog.Default()
+
+// LogError provides modern structured error logging and returns the error
+func LogError(ctx context.Context, action string, err error, attrs ...slog.Attr) error {
 	formattedErr := fmt.Errorf("failed to %s: %w", action, err)
-	log.Printf("%v", formattedErr)
+
+	logAttrs := []any{
+		slog.String("action", action),
+		slog.Any("error", err),
+	}
+	for _, attr := range attrs {
+		logAttrs = append(logAttrs, attr)
+	}
+
+	defaultLogger.ErrorContext(ctx, formattedErr.Error(), logAttrs...)
 	return formattedErr
 }
 
-// LogErrorAndContinue logs an error and is used when continuing execution
-func LogErrorAndContinue(action string, err error) {
-	log.Printf("Failed to %s: %v", action, err)
+// LogErrorContinue logs an error but continues execution (doesn't return error)
+func LogErrorContinue(ctx context.Context, action string, err error, attrs ...slog.Attr) {
+	LogError(ctx, action, err, attrs...)
 }

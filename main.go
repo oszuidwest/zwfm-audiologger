@@ -7,15 +7,25 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
+	_ "time/tzdata" // Embed timezone data for consistent behavior
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/scheduler"
 	"github.com/oszuidwest/zwfm-audiologger/internal/server"
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
+
+func init() {
+	// Go 1.25+ automatically handles container CPU limits for GOMAXPROCS
+	// This provides optimal performance in containerized environments
+	maxProcs := runtime.GOMAXPROCS(0)
+	log.Printf("Starting with GOMAXPROCS=%d (Go %s)", maxProcs, runtime.Version())
+}
 
 func main() {
 	// Parse command-line flags
@@ -27,6 +37,11 @@ func main() {
 	cfg, err := config.Load(*configFile)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Set the timezone from config
+	if err := utils.SetTimezone(cfg.Timezone); err != nil {
+		log.Printf("Warning: %v", err)
 	}
 
 	// Create context for graceful shutdown

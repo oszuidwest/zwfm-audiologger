@@ -2,6 +2,7 @@
 package postprocessor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -42,7 +43,7 @@ func (m *Manager) MarkProgramStart(station string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	now := time.Now()
+	now := utils.Now()
 	hour := now.Format(utils.HourlyTimestampFormat)
 	key := fmt.Sprintf("%s-%s", station, hour)
 
@@ -69,7 +70,7 @@ func (m *Manager) MarkProgramEnd(station string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	now := time.Now()
+	now := utils.Now()
 	hour := now.Format(utils.HourlyTimestampFormat)
 	key := fmt.Sprintf("%s-%s", station, hour)
 
@@ -84,8 +85,8 @@ func (m *Manager) MarkProgramEnd(station string) {
 	}
 }
 
-// Recording processes a completed hourly recording to remove commercials
-func (m *Manager) Recording(station, hour string) error {
+// ProcessRecording processes a completed hourly recording to remove commercials
+func (m *Manager) ProcessRecording(station, hour string) error {
 	m.mu.RLock()
 	key := fmt.Sprintf("%s-%s", station, hour)
 	recording, exists := m.recordings[key]
@@ -97,15 +98,15 @@ func (m *Manager) Recording(station, hour string) error {
 	}
 
 	// Find the input file with any audio extension
-	inputFile := utils.FindRecordingFile(m.recordingsDir, station, hour)
-	if inputFile == "" {
-		return fmt.Errorf("recording file not found for %s hour %s", station, hour)
+	inputFile, err := utils.FindRecordingFile(m.recordingsDir, station, hour)
+	if err != nil {
+		return fmt.Errorf("recording file not found for %s hour %s: %w", station, hour, err)
 	}
 
 	// Keep original as backup, processed will take its name
-	ext := utils.GetFileExtension(inputFile)
-	originalBackup := utils.BuildRecordingPath(m.recordingsDir, station, hour+".original", ext)
-	tempOutput := utils.BuildRecordingPath(m.recordingsDir, station, hour+".temp", ext)
+	ext := utils.Extension(inputFile)
+	originalBackup := utils.RecordingPath(m.recordingsDir, station, hour+".original", ext)
+	tempOutput := utils.RecordingPath(m.recordingsDir, station, hour+".temp", ext)
 
 	// Parse the hour to get the recording start time
 	recordingStart, err := utils.ParseHourlyTimestamp(hour)
@@ -130,7 +131,7 @@ func (m *Manager) Recording(station, hour string) error {
 	log.Printf("Trimming %s: extracting from %v for %v seconds", station, startOffset, duration)
 
 	// Process to temporary file
-	cmd := utils.FFmpegTrimCommand(inputFile, fmt.Sprintf("%.0f", startOffset), fmt.Sprintf("%.0f", duration), tempOutput)
+	cmd := utils.TrimCommand(inputFile, fmt.Sprintf("%.0f", startOffset), fmt.Sprintf("%.0f", duration), tempOutput)
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("ffmpeg trim failed: %w", err)
@@ -138,15 +139,21 @@ func (m *Manager) Recording(station, hour string) error {
 
 	// Rename original to .original backup
 	if err := os.Rename(inputFile, originalBackup); err != nil {
-		os.Remove(tempOutput) // Clean up temp file
+		if removeErr := os.Remove(tempOutput); removeErr != nil {
+			log.Printf("Failed to clean up temp file %s: %v", tempOutput, removeErr)
+		}
 		return fmt.Errorf("failed to backup original: %w", err)
 	}
 
 	// Rename processed to original name for predictable URLs
 	if err := os.Rename(tempOutput, inputFile); err != nil {
 		// Try to restore original if rename fails
-		os.Rename(originalBackup, inputFile)
-		os.Remove(tempOutput)
+		if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
+			log.Printf("Failed to restore original file %s: %v", inputFile, restoreErr)
+		}
+		if removeErr := os.Remove(tempOutput); removeErr != nil {
+			log.Printf("Failed to remove temp file %s: %v", tempOutput, removeErr)
+		}
 		return fmt.Errorf("failed to replace with processed version: %w", err)
 	}
 
@@ -170,16 +177,16 @@ func (m *Manager) saveRecordingInfo(station, hour string) {
 	}
 
 	// Save to a JSON file alongside the recording
-	recordingFile := utils.BuildRecordingPath(m.recordingsDir, station, hour, ".recording.json")
+	recordingFile := utils.RecordingPath(m.recordingsDir, station, hour, ".recording.json")
 
 	data, err := json.MarshalIndent(recording, "", "  ")
 	if err != nil {
-		utils.LogErrorAndContinue("marshal recording", err)
+		utils.LogErrorContinue(context.Background(), "marshal recording", err)
 		return
 	}
 
-	if err := os.WriteFile(recordingFile, data, 0644); err != nil {
-		utils.LogErrorAndContinue("save recording info", err)
+	if err := os.WriteFile(recordingFile, data, 0o644); err != nil {
+		utils.LogErrorContinue(context.Background(), "save recording info", err)
 		return
 	}
 
@@ -188,7 +195,7 @@ func (m *Manager) saveRecordingInfo(station, hour string) {
 
 // LoadInfo loads saved recording information from disk
 func (m *Manager) LoadInfo(station, hour string) error {
-	recordingFile := utils.BuildRecordingPath(m.recordingsDir, station, hour, ".recording.json")
+	recordingFile := utils.RecordingPath(m.recordingsDir, station, hour, ".recording.json")
 
 	data, err := os.ReadFile(recordingFile)
 	if err != nil {
@@ -212,8 +219,8 @@ func (m *Manager) LoadInfo(station, hour string) error {
 	return nil
 }
 
-// PendingRecordings processes any recordings that have recording info but haven't been processed yet
-func (m *Manager) PendingRecordings() error {
+// ProcessPendingRecordings processes any recordings that have recording info but haven't been processed yet
+func (m *Manager) ProcessPendingRecordings() error {
 	// Look for .recording.json files without corresponding _processed.mp3 files
 	stations, err := os.ReadDir(m.recordingsDir)
 	if err != nil {
@@ -225,32 +232,35 @@ func (m *Manager) PendingRecordings() error {
 			continue
 		}
 
-		stationPath := utils.BuildStationDir(m.recordingsDir, stationDir.Name())
+		stationPath := utils.StationDir(m.recordingsDir, stationDir.Name())
 		files, err := os.ReadDir(stationPath)
 		if err != nil {
 			continue
 		}
 
 		for _, file := range files {
-			if filepath.Ext(file.Name()) == ".json" && strings.Contains(file.Name(), ".recording.json") {
-				hour := strings.TrimSuffix(file.Name(), ".recording.json")
+			if filepath.Ext(file.Name()) != ".json" || !strings.Contains(file.Name(), ".recording.json") {
+				continue
+			}
+			
+			hour := strings.TrimSuffix(file.Name(), ".recording.json")
 
-				// Check if we have an original backup (means it was already processed)
-				originalFiles, _ := filepath.Glob(filepath.Join(stationPath, hour+".original.*"))
-				if len(originalFiles) > 0 {
-					continue // Already processed
-				}
+			// Check if we have an original backup (means it was already processed)
+			originalFiles, _ := filepath.Glob(filepath.Join(stationPath, hour+".original.*"))
+			if len(originalFiles) > 0 {
+				continue // Already processed
+			}
 
-				// Find the actual recording file
-				recordingFile := utils.FindRecordingFile(m.recordingsDir, stationDir.Name(), hour)
-				if recordingFile == "" {
-					continue // No recording file found
-				}
+			// Find the actual recording file
+			if _, err := utils.FindRecordingFile(m.recordingsDir, stationDir.Name(), hour); err != nil {
+				continue // No recording file found
+			}
 
-				// Load recording info and process
-				if err := m.LoadInfo(stationDir.Name(), hour); err == nil {
-					log.Printf("Processing pending recording: %s %s", stationDir.Name(), hour)
-					m.Recording(stationDir.Name(), hour)
+			// Load recording info and process
+			if err := m.LoadInfo(stationDir.Name(), hour); err == nil {
+				log.Printf("Processing pending recording: %s %s", stationDir.Name(), hour)
+				if err := m.ProcessRecording(stationDir.Name(), hour); err != nil {
+					log.Printf("Failed to process pending recording %s %s: %v", stationDir.Name(), hour, err)
 				}
 			}
 		}

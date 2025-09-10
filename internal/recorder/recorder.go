@@ -44,24 +44,20 @@ func (m *Manager) ActiveRecordings() map[string]ActiveRecording {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result := make(map[string]ActiveRecording)
-	for k, v := range m.activeRecordings {
-		result[k] = *v
-	}
-	return result
+	return utils.CloneMap(m.activeRecordings)
 }
 
 // Scheduled performs a scheduled recording (1 hour duration)
 func (m *Manager) Scheduled(name string, station config.Station) {
-	dir := utils.BuildStationDir(m.config.RecordingsDir, name)
+	dir := utils.StationDir(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
-		utils.LogErrorAndContinue(fmt.Sprintf("create directory for %s", name), err)
+		utils.LogErrorContinue(context.Background(), fmt.Sprintf("create directory for %s", name), err)
 		return
 	}
 
 	timestamp := utils.HourlyTimestamp()
 	// Record with temporary .rec extension
-	tempFile := utils.BuildRecordingPath(m.config.RecordingsDir, name, timestamp, ".rec")
+	tempFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, ".rec")
 
 	// Fetch metadata if configured
 	if station.MetadataURL != "" {
@@ -70,19 +66,19 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 
 	log.Printf("Recording %s to %s", name, tempFile)
 
-	cmd := utils.FFmpegRecordCommand(nil, station.StreamURL, "3600", tempFile)
+	cmd := utils.RecordCommand(context.Background(), station.StreamURL, "3600", tempFile)
 
 	if err := cmd.Run(); err != nil {
-		utils.LogErrorAndContinue(fmt.Sprintf("recording for %s", name), err)
+		utils.LogErrorContinue(context.Background(), fmt.Sprintf("recording for %s", name), err)
 		return
 	}
 
 	// Detect format from the recorded file and rename
-	format := utils.DetectFileFormat(tempFile)
-	finalFile := utils.BuildRecordingPath(m.config.RecordingsDir, name, timestamp, format)
+	format := utils.Format(tempFile)
+	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
 
 	if err := os.Rename(tempFile, finalFile); err != nil {
-		utils.LogErrorAndContinue("rename recording", err)
+		utils.LogErrorContinue(context.Background(), "rename recording", err)
 		return
 	}
 
@@ -91,18 +87,18 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 
 // saveMetadata fetches and saves metadata for a recording
 func (m *Manager) saveMetadata(stationName string, station config.Station, timestamp string) {
-	metadata := m.metadataFetcher.Fetch(
+	meta := m.metadataFetcher.Fetch(
 		station.MetadataURL,
 		station.MetadataPath,
 		station.ParseMetadata,
 	)
 
-	if metadata != "" {
-		metaFile := utils.BuildRecordingPath(m.config.RecordingsDir, stationName, timestamp, ".meta")
-		if err := os.WriteFile(metaFile, []byte(metadata), 0644); err != nil {
-			utils.LogErrorAndContinue(fmt.Sprintf("save metadata for %s", stationName), err)
+	if meta != "" {
+		metaFile := utils.RecordingPath(m.config.RecordingsDir, stationName, timestamp, ".meta")
+		if err := os.WriteFile(metaFile, []byte(meta), 0o644); err != nil {
+			utils.LogErrorContinue(context.Background(), fmt.Sprintf("save metadata for %s", stationName), err)
 		} else {
-			log.Printf("Saved metadata for %s: %s", stationName, metadata)
+			log.Printf("Saved metadata for %s: %s", stationName, meta)
 		}
 	}
 }
@@ -112,31 +108,31 @@ func (m *Manager) Test(ctx context.Context) {
 	log.Println("Running test recordings (10 seconds each)...")
 
 	for name, station := range m.config.Stations {
-		dir := utils.BuildStationDir(m.config.RecordingsDir, name)
+		dir := utils.StationDir(m.config.RecordingsDir, name)
 		if err := utils.EnsureDir(dir); err != nil {
-			utils.LogErrorAndContinue(fmt.Sprintf("create directory for %s", name), err)
+			utils.LogErrorContinue(context.Background(), fmt.Sprintf("create directory for %s", name), err)
 			continue
 		}
 
 		timestamp := utils.TestTimestamp()
 		// Record with temporary .rec extension
-		tempFile := utils.BuildRecordingPath(m.config.RecordingsDir, name, "test-"+timestamp, ".rec")
+		tempFile := utils.RecordingPath(m.config.RecordingsDir, name, "test-"+timestamp, ".rec")
 
 		log.Printf("Test recording %s to %s", name, tempFile)
 
-		cmd := utils.FFmpegRecordCommand(ctx, station.StreamURL, "10", tempFile)
+		cmd := utils.RecordCommand(ctx, station.StreamURL, "10", tempFile)
 
 		if err := cmd.Run(); err != nil {
-			utils.LogErrorAndContinue(fmt.Sprintf("test recording for %s", name), err)
+			utils.LogErrorContinue(context.Background(), fmt.Sprintf("test recording for %s", name), err)
 			continue
 		}
 
 		// Detect format and rename
-		format := utils.DetectFileFormat(tempFile)
-		finalFile := utils.BuildRecordingPath(m.config.RecordingsDir, name, "test-"+timestamp, format)
+		format := utils.Format(tempFile)
+		finalFile := utils.RecordingPath(m.config.RecordingsDir, name, "test-"+timestamp, format)
 
 		if err := os.Rename(tempFile, finalFile); err != nil {
-			utils.LogErrorAndContinue("rename test recording", err)
+			utils.LogErrorContinue(context.Background(), "rename test recording", err)
 			continue
 		}
 

@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/flc1125/go-cron/middleware/recovery/v4"
 	cron "github.com/flc1125/go-cron/v4"
@@ -49,23 +48,35 @@ func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *
 // Start begins the scheduling using cron
 func (s *Scheduler) Start(ctx context.Context) {
 	// Process any pending recordings on startup
-	go s.postProcessor.PendingRecordings()
+	go func() {
+		if err := s.postProcessor.ProcessPendingRecordings(); err != nil {
+			log.Printf("Failed to process pending recordings: %v", err)
+		}
+	}()
 
 	// Schedule hourly recordings for all stations (at the top of every hour)
 	for name, station := range s.config.Stations {
 		stationName, stationConfig := name, station
-		s.cron.AddFunc("0 * * * *", func(ctx context.Context) error {
+		if jobID, err := s.cron.AddFunc("0 * * * *", func(ctx context.Context) error {
 			s.recordAndProcess(stationName, stationConfig)
 			return nil
-		})
-		log.Printf("Scheduled %s for hourly recording: %s", name, station.StreamURL)
+		}); err != nil {
+			log.Printf("Failed to schedule hourly recording for %s: %v", name, err)
+			continue
+		} else {
+			log.Printf("Scheduled %s for hourly recording (job ID: %v): %s", name, jobID, station.StreamURL)
+		}
 	}
 
 	// Schedule daily cleanup at midnight
-	s.cron.AddFunc("0 0 * * *", func(ctx context.Context) error {
+	if jobID, err := s.cron.AddFunc("0 0 * * *", func(ctx context.Context) error {
 		s.cleanupOldRecordings()
 		return nil
-	})
+	}); err != nil {
+		log.Printf("Failed to schedule daily cleanup: %v", err)
+	} else {
+		log.Printf("Scheduled daily cleanup at midnight (job ID: %v)", jobID)
+	}
 
 	log.Println("Scheduler started. Press Ctrl+C to stop.")
 
@@ -90,21 +101,21 @@ func (s *Scheduler) recordAndProcess(name string, station config.Station) {
 	s.recorder.Scheduled(name, station)
 
 	// After recording completes, process it to remove commercials if segments were marked
-	if err := s.postProcessor.Recording(name, hour); err != nil {
+	if err := s.postProcessor.ProcessRecording(name, hour); err != nil {
 		log.Printf("Failed to post-process recording for %s: %v", name, err)
 	}
 }
 
 // cleanupOldRecordings removes recordings older than configured keep_days
 func (s *Scheduler) cleanupOldRecordings() {
-	cutoff := time.Now().AddDate(0, 0, -s.config.KeepDays)
+	cutoff := utils.Now().AddDate(0, 0, -s.config.KeepDays)
 	log.Printf("Cleaning up recordings older than %s", cutoff.Format("2006-01-02"))
 
 	for station := range s.config.Stations {
-		dir := utils.BuildStationDir(s.config.RecordingsDir, station)
+		dir := utils.StationDir(s.config.RecordingsDir, station)
 		files, err := os.ReadDir(dir)
 		if err != nil {
-			utils.LogErrorAndContinue(fmt.Sprintf("read directory %s", dir), err)
+			utils.LogErrorContinue(context.Background(), fmt.Sprintf("read directory %s", dir), err)
 			continue
 		}
 

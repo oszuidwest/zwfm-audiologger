@@ -1,49 +1,67 @@
+// Package utils provides file system utilities for audio recording management,
+// including directory creation, file path construction, and file discovery.
 package utils
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
+var supportedExtensions = []string{".mp3", ".aac", ".m4a", ".ogg", ".opus", ".flac", ".wav"}
+
 // EnsureDir creates a directory and all parent directories if they don't exist
 func EnsureDir(dir string) error {
-	return os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+	return nil
 }
 
-// BuildRecordingPath constructs a path for a recording file
-func BuildRecordingPath(recordingsDir, stationName, timestamp, extension string) string {
+// RecordingPath constructs a path for a recording file
+func RecordingPath(recordingsDir, stationName, timestamp, extension string) string {
 	return filepath.Join(recordingsDir, stationName, timestamp+extension)
 }
 
-// BuildStationDir constructs the directory path for a station
-func BuildStationDir(recordingsDir, stationName string) string {
+// StationDir constructs the directory path for a station
+func StationDir(recordingsDir, stationName string) string {
 	return filepath.Join(recordingsDir, stationName)
 }
 
-// FindRecordingFile looks for a recording file with any supported audio extension
-// Returns the full path if found, or empty string if not found
-func FindRecordingFile(recordingsDir, stationName, timestamp string) string {
+// FindRecordingFile looks for a recording file with modern error handling
+func FindRecordingFile(recordingsDir, stationName, timestamp string) (string, error) {
 	// Check for temporary .rec file first (in case rename failed)
-	recPath := BuildRecordingPath(recordingsDir, stationName, timestamp, ".rec")
+	recPath := RecordingPath(recordingsDir, stationName, timestamp, ".rec")
 	if info, err := os.Stat(recPath); err == nil && !info.IsDir() {
-		return recPath
+		return recPath, nil
 	}
 
-	// Check for properly named files
-	extensions := []string{".mp3", ".aac", ".m4a", ".ogg", ".opus", ".flac", ".wav"}
+	// Use Go 1.25's improved error handling
+	var foundFiles []string
 
-	for _, ext := range extensions {
-		path := BuildRecordingPath(recordingsDir, stationName, timestamp, ext)
+	for _, ext := range supportedExtensions {
+		path := RecordingPath(recordingsDir, stationName, timestamp, ext)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path
+			foundFiles = append(foundFiles, path)
 		}
 	}
 
-	return ""
+	switch len(foundFiles) {
+	case 0:
+		return "", fs.ErrNotExist
+	case 1:
+		return foundFiles[0], nil
+	default:
+		// Multiple files found - return the first supported one
+		slices.Sort(foundFiles) // Deterministic ordering
+		return foundFiles[0], nil
+	}
 }
 
-// GetFileExtension returns the extension of a file path
-func GetFileExtension(path string) string {
+// Extension returns the extension of a file path
+func Extension(path string) string {
 	return strings.ToLower(filepath.Ext(path))
 }

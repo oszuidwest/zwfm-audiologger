@@ -1,32 +1,76 @@
+// Package utils provides HTTP response utilities for consistent API responses
+// with structured logging and standardized error handling.
 package utils
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
-// RespondWithError sends a JSON error response
-func RespondWithError(c *gin.Context, statusCode int, message string) {
-	c.JSON(statusCode, gin.H{"error": message})
+// HTTPError represents a structured HTTP error response
+type HTTPError struct {
+	Status  int    `json:"status"`
+	Message string `json:"error"`
+	Code    string `json:"code,omitempty"`
 }
 
-// RespondWithBadRequest sends a 400 Bad Request response
-func RespondWithBadRequest(c *gin.Context, message string) {
-	RespondWithError(c, http.StatusBadRequest, message)
+// ResponseBuilder provides modern HTTP response handling with structured logging
+type ResponseBuilder struct {
+	logger *slog.Logger
 }
 
-// RespondWithNotFound sends a 404 Not Found response
-func RespondWithNotFound(c *gin.Context, message string) {
-	RespondWithError(c, http.StatusNotFound, message)
+// NewResponseBuilder creates a new response builder with structured logging
+func NewResponseBuilder() *ResponseBuilder {
+	return &ResponseBuilder{
+		logger: slog.Default(),
+	}
 }
 
-// RespondWithInternalError sends a 500 Internal Server Error response
-func RespondWithInternalError(c *gin.Context, message string) {
-	RespondWithError(c, http.StatusInternalServerError, message)
+// Error sends a structured error response with automatic logging
+func (rb *ResponseBuilder) Error(c *gin.Context, status int, message string, code ...string) {
+	response := HTTPError{
+		Status:  status,
+		Message: message,
+	}
+
+	if len(code) > 0 {
+		response.Code = code[0]
+	}
+
+	// Structured logging for errors
+	rb.logger.Error("HTTP error response",
+		slog.Int("status", status),
+		slog.String("message", message),
+		slog.String("path", c.Request.URL.Path),
+		slog.String("method", c.Request.Method),
+		slog.String("user_agent", c.Request.UserAgent()),
+		slog.String("remote_addr", c.ClientIP()),
+	)
+
+	c.JSON(status, response)
 }
 
-// RespondWithUnauthorized sends a 401 Unauthorized response
-func RespondWithUnauthorized(c *gin.Context) {
-	RespondWithError(c, http.StatusUnauthorized, "Unauthorized")
+// BadRequest responds with HTTP 400 Bad Request
+func (rb *ResponseBuilder) BadRequest(c *gin.Context, message string) {
+	rb.Error(c, http.StatusBadRequest, message, "BAD_REQUEST")
 }
+
+// NotFound responds with HTTP 404 Not Found
+func (rb *ResponseBuilder) NotFound(c *gin.Context, message string) {
+	rb.Error(c, http.StatusNotFound, message, "NOT_FOUND")
+}
+
+// Unauthorized responds with HTTP 401 Unauthorized
+func (rb *ResponseBuilder) Unauthorized(c *gin.Context) {
+	rb.Error(c, http.StatusUnauthorized, "Unauthorized", "UNAUTHORIZED")
+}
+
+// InternalError responds with HTTP 500 Internal Server Error
+func (rb *ResponseBuilder) InternalError(c *gin.Context, message string) {
+	rb.Error(c, http.StatusInternalServerError, message, "INTERNAL_ERROR")
+}
+
+// Global response builder instance for convenience
+var HTTPResponder = NewResponseBuilder()

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +15,7 @@ type Config struct {
 	RecordingsDir string             `json:"recordings_dir"`
 	Port          int                `json:"port"`
 	KeepDays      int                `json:"keep_days"`
+	Timezone      string             `json:"timezone"`
 	Stations      map[string]Station `json:"stations"`
 }
 
@@ -26,14 +28,17 @@ type Station struct {
 	ParseMetadata bool   `json:"parse_metadata,omitempty"`
 }
 
-// Load reads and parses the configuration from a JSON file using Viper
+// Load reads and parses the configuration from a JSON file using Viper.
+// It supports JSON configuration files and provides sensible defaults
+// for missing configuration values.
 func Load(path string) (*Config, error) {
 	v := viper.New()
 
 	// Set defaults
 	v.SetDefault("recordings_dir", "/var/audio")
 	v.SetDefault("keep_days", 31)
-	v.SetDefault("port", 8090)
+	v.SetDefault("port", 8080)
+	v.SetDefault("timezone", "UTC")
 
 	// Configure viper
 	dir := filepath.Dir(path)
@@ -48,13 +53,13 @@ func Load(path string) (*Config, error) {
 
 	// Read config file
 	if err := v.ReadInConfig(); err != nil {
-		return nil, utils.LogErrorf("read config file", err)
+		return nil, utils.LogError(context.Background(), "read config file", err)
 	}
 
 	// Unmarshal into struct
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
-		return nil, utils.LogErrorf("parse config", err)
+		return nil, utils.LogError(context.Background(), "parse config", err)
 	}
 
 	return &config, nil

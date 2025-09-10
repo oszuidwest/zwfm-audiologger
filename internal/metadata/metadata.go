@@ -2,6 +2,7 @@
 package metadata
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -27,7 +28,7 @@ func New() *Fetcher {
 }
 
 // Fetch retrieves metadata from the given URL and optionally parses JSON
-func (f *Fetcher) Fetch(url string, jsonPath string, parseJSON bool) string {
+func (f *Fetcher) Fetch(url, jsonPath string, parseJSON bool) string {
 	if url == "" {
 		return ""
 	}
@@ -42,14 +43,18 @@ func (f *Fetcher) Fetch(url string, jsonPath string, parseJSON bool) string {
 func (f *Fetcher) fetchRaw(url string) string {
 	resp, err := f.client.Get(url)
 	if err != nil {
-		utils.LogErrorAndContinue("fetch metadata", err)
+		utils.LogErrorContinue(context.Background(), "fetch metadata", err)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			utils.LogErrorContinue(context.Background(), "close response body", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		utils.LogErrorAndContinue("read metadata response", err)
+		utils.LogErrorContinue(context.Background(), "read metadata response", err)
 		return ""
 	}
 
@@ -60,14 +65,18 @@ func (f *Fetcher) fetchRaw(url string) string {
 func (f *Fetcher) fetchAndParseJSON(url, jsonPath string) string {
 	resp, err := f.client.Get(url)
 	if err != nil {
-		utils.LogErrorAndContinue("fetch metadata", err)
+		utils.LogErrorContinue(context.Background(), "fetch metadata", err)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			utils.LogErrorContinue(context.Background(), "close response body", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		utils.LogErrorAndContinue("read metadata response", err)
+		utils.LogErrorContinue(context.Background(), "read metadata response", err)
 		return ""
 	}
 
