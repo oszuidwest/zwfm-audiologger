@@ -1,128 +1,88 @@
-// Package metadata provides functionality for fetching and managing program metadata
-// from radio station APIs using gjson for JSON parsing and structured storage.
+// Package metadata handles fetching and parsing metadata from external APIs
 package metadata
 
 import (
-	"context"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/oszuidwest/zwfm-audiologger/internal/config"
-	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
-	"github.com/oszuidwest/zwfm-audiologger/internal/version"
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"github.com/tidwall/gjson"
 )
 
-// Fetcher retrieves program metadata from station APIs with configurable JSON parsing
-// and timeout handling for reliable metadata collection.
+// Fetcher handles metadata retrieval from external sources
 type Fetcher struct {
-	logger *logger.Logger
 	client *http.Client
 }
 
-// New returns a new metadata Fetcher with a 15-second HTTP timeout.
-func New(log *logger.Logger) *Fetcher {
+// New creates a new metadata fetcher
+func New() *Fetcher {
 	return &Fetcher{
-		logger: log,
 		client: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 	}
 }
 
-// FetchMetadata retrieves program metadata for a recording and stores it as a .meta file.
-func (f *Fetcher) FetchMetadata(stationName string, station config.Station, stationDir, timestamp string) {
-	if station.MetadataURL == "" {
-		f.logger.Debug("no metadata URL configured", "station", stationName)
-		return
+// Fetch retrieves metadata from the given URL and optionally parses JSON
+func (f *Fetcher) Fetch(url string, jsonPath string, parseJSON bool) string {
+	if url == "" {
+		return ""
 	}
 
-	f.logger.Debug("fetching metadata", "station", stationName, "url", station.MetadataURL, "parse", station.ParseMetadata, "path", station.MetadataJSONPath)
-
-	programName := f.fetchProgramName(station)
-	if programName == "" {
-		f.logger.Warn("no program name found, using fallback", "station", stationName)
-		programName = "Unknown Program"
+	if parseJSON && jsonPath != "" {
+		return f.fetchAndParseJSON(url, jsonPath)
 	}
-
-	metaFile := filepath.Join(stationDir, timestamp+".meta")
-	if err := os.WriteFile(metaFile, []byte(programName), 0644); err != nil {
-		f.logger.Error("failed to write metadata file", "station", stationName, "file", metaFile, "error", err)
-		return
-	}
-
-	f.logger.Info("stored metadata", "station", stationName, "timestamp", timestamp, "program", programName)
+	return f.fetchRaw(url)
 }
 
-// fetchProgramName retrieves the program name from a station's metadata API.
-func (f *Fetcher) fetchProgramName(station config.Station) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", station.MetadataURL, nil)
+// fetchRaw retrieves raw content from a URL
+func (f *Fetcher) fetchRaw(url string) string {
+	resp, err := f.client.Get(url)
 	if err != nil {
-		f.logger.Error("failed to create metadata request", "error", err)
+		utils.LogErrorAndContinue("fetch metadata", err)
 		return ""
 	}
-	req.Header.Set("User-Agent", version.UserAgent())
-
-	resp, err := f.client.Do(req)
-	if err != nil {
-		f.logger.Error("failed to fetch metadata", "error", err)
-		return ""
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			f.logger.Error("failed to close response body", "error", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		f.logger.Error("metadata request failed", "status_code", resp.StatusCode)
-		return ""
-	}
+	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		f.logger.Error("failed to read metadata response", "error", err)
+		utils.LogErrorAndContinue("read metadata response", err)
 		return ""
 	}
 
-	bodyStr := string(body)
-
-	// Parse JSON response using gjson path syntax if configured
-	// Example: "program.title" extracts {"program": {"title": "Morning Show"}} -> "Morning Show"
-	if station.ParseMetadata && station.MetadataJSONPath != "" {
-		// Remove leading dot from path for gjson compatibility
-		jsonPath := strings.TrimPrefix(station.MetadataJSONPath, ".")
-
-		f.logger.Debug(fmt.Sprintf("Parsing metadata with path '%s' from JSON: %s", jsonPath, bodyStr))
-
-		// Use gjson to extract value at specified path
-		result := gjson.Get(bodyStr, jsonPath)
-		if result.Exists() {
-			f.logger.Debug(fmt.Sprintf("Parsed metadata result: %s", result.String()))
-			return result.String()
-		}
-		f.logger.Error("JSON path not found in response", "path", jsonPath)
-	}
-
-	return strings.TrimSpace(bodyStr)
+	return strings.TrimSpace(string(body))
 }
 
-// GetMetadata reads a metadata file for the given timestamp.
-func (f *Fetcher) GetMetadata(stationDir, timestamp string) (string, error) {
-	metaFile := filepath.Join(stationDir, timestamp+".meta")
-
-	data, err := os.ReadFile(metaFile)
+// fetchAndParseJSON retrieves and parses JSON from a URL using gjson
+func (f *Fetcher) fetchAndParseJSON(url, jsonPath string) string {
+	resp, err := f.client.Get(url)
 	if err != nil {
-		return "", fmt.Errorf("failed to read metadata file: %w", err)
+		utils.LogErrorAndContinue("fetch metadata", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		utils.LogErrorAndContinue("read metadata response", err)
+		return ""
 	}
 
-	return strings.TrimSpace(string(data)), nil
+	// If no JSON path specified, return raw response
+	if jsonPath == "" {
+		return strings.TrimSpace(string(body))
+	}
+
+	// Use gjson to extract value at path
+	result := gjson.GetBytes(body, jsonPath)
+	if !result.Exists() {
+		log.Printf("JSON path '%s' not found in metadata", jsonPath)
+		return ""
+	}
+
+	// Return the string representation
+	return result.String()
 }

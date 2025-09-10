@@ -1,151 +1,61 @@
-// Package config provides configuration management for the audio logger application
-// with JSON parsing, validation, and default value handling.
+// Package config handles application configuration loading and validation
 package config
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
 	"path/filepath"
-	"time"
+	"strings"
+
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/spf13/viper"
 )
 
-// Config represents the main application configuration with stations, server settings,
-// and recording parameters.
+// Config represents the application configuration
 type Config struct {
-	RecordingsDirectory string             `json:"recordings_directory"`
-	LogFile             string             `json:"log_file"`
-	KeepDays            int                `json:"keep_days"`
-	Debug               bool               `json:"debug"`
-	Timezone            string             `json:"timezone"`
-	Stations            map[string]Station `json:"stations"`
-	Server              ServerConfig       `json:"server"`
+	RecordingsDir string             `json:"recordings_dir"`
+	Port          int                `json:"port"`
+	KeepDays      int                `json:"keep_days"`
+	Stations      map[string]Station `json:"stations"`
 }
 
-// Station represents a radio station configuration with stream URL, metadata settings,
-// and recording parameters.
+// Station represents a radio station configuration
 type Station struct {
-	URL              string   `json:"stream_url"`
-	MetadataURL      string   `json:"metadata_url,omitempty"`
-	MetadataJSONPath string   `json:"metadata_path,omitempty"`
-	ParseMetadata    bool     `json:"parse_metadata,omitempty"`
-	KeepDays         int      `json:"keep_days,omitempty"`
-	RecordDuration   Duration `json:"record_duration,omitempty"`
+	StreamURL     string `json:"stream_url"`
+	APISecret     string `json:"api_secret,omitempty"` // Per-station API secret
+	MetadataURL   string `json:"metadata_url,omitempty"`
+	MetadataPath  string `json:"metadata_path,omitempty"`
+	ParseMetadata bool   `json:"parse_metadata,omitempty"`
 }
 
-// Duration wraps time.Duration to support JSON parsing of string formats
-// like "1h" and "30m" as well as numeric nanosecond values.
-type Duration time.Duration
+// Load reads and parses the configuration from a JSON file using Viper
+func Load(path string) (*Config, error) {
+	v := viper.New()
 
-// UnmarshalJSON parses duration strings ("1h", "30m") or raw nanosecond values.
-func (d *Duration) UnmarshalJSON(b []byte) error {
-	var v interface{}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
+	// Set defaults
+	v.SetDefault("recordings_dir", "/var/audio")
+	v.SetDefault("keep_days", 31)
+	v.SetDefault("port", 8090)
+
+	// Configure viper
+	dir := filepath.Dir(path)
+	fileName := filepath.Base(path)
+	ext := filepath.Ext(fileName)
+	name := strings.TrimSuffix(fileName, ext)
+
+	v.SetConfigName(name)
+	v.SetConfigType(strings.TrimPrefix(ext, "."))
+	v.AddConfigPath(dir)
+	v.AddConfigPath(".")
+
+	// Read config file
+	if err := v.ReadInConfig(); err != nil {
+		return nil, utils.LogErrorf("read config file", err)
 	}
 
-	switch value := v.(type) {
-	case float64:
-		// Handle raw nanosecond values from JSON numbers
-		*d = Duration(time.Duration(value))
-	case string:
-		// Parse human-readable duration strings ("1h", "30m", etc.)
-		duration, err := time.ParseDuration(value)
-		if err != nil {
-			return err
-		}
-		*d = Duration(duration)
-	default:
-		return fmt.Errorf("invalid duration format")
-	}
-
-	return nil
-}
-
-// ServerConfig contains HTTP server configuration including timeouts,
-// cache settings, and port configuration.
-type ServerConfig struct {
-	Port            int      `json:"port"`
-	ReadTimeout     Duration `json:"read_timeout"`
-	WriteTimeout    Duration `json:"write_timeout"`
-	ShutdownTimeout Duration `json:"shutdown_timeout"`
-	CacheDirectory  string   `json:"cache_directory"`
-	CacheTTL        Duration `json:"cache_ttl"`
-}
-
-// Load reads and parses a JSON configuration file.
-func Load(filename string) (*Config, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
+	// Unmarshal into struct
 	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, utils.LogErrorf("parse config", err)
 	}
 
-	return config.validate()
-}
-
-// validate applies defaults and validates the configuration.
-func (c *Config) validate() (*Config, error) {
-	if c.RecordingsDirectory == "" {
-		c.RecordingsDirectory = filepath.Join(os.TempDir(), "audiologger")
-	}
-	if c.LogFile == "" {
-		c.LogFile = "/var/log/audiologger.log"
-	}
-	if c.KeepDays == 0 {
-		c.KeepDays = 7
-	}
-	if c.Timezone == "" {
-		c.Timezone = "Europe/Amsterdam"
-	}
-	if c.Server.Port == 0 {
-		c.Server.Port = 8080
-	}
-	if c.Server.ReadTimeout == 0 {
-		c.Server.ReadTimeout = Duration(30 * time.Second)
-	}
-	if c.Server.WriteTimeout == 0 {
-		c.Server.WriteTimeout = Duration(30 * time.Second)
-	}
-	if c.Server.ShutdownTimeout == 0 {
-		c.Server.ShutdownTimeout = Duration(10 * time.Second)
-	}
-	if c.Server.CacheDirectory == "" {
-		c.Server.CacheDirectory = filepath.Join(c.RecordingsDirectory, "cache")
-	}
-	if c.Server.CacheTTL == 0 {
-		c.Server.CacheTTL = Duration(24 * time.Hour)
-	}
-
-	for name, station := range c.Stations {
-		if station.URL == "" {
-			return nil, fmt.Errorf("stream_url is required for station %s", name)
-		}
-		if station.KeepDays == 0 {
-			station.KeepDays = c.KeepDays
-		}
-		if station.RecordDuration == 0 {
-			station.RecordDuration = Duration(time.Hour)
-		}
-		c.Stations[name] = station
-	}
-
-	return c, nil
-}
-
-// GetStationKeepDays returns the retention period in days for stationName.
-func (c *Config) GetStationKeepDays(stationName string) int {
-	if station, exists := c.Stations[stationName]; exists && station.KeepDays > 0 {
-		return station.KeepDays
-	}
-	return c.KeepDays
-}
-
-// GetTimezone returns the time.Location for the configured timezone.
-func (c *Config) GetTimezone() (*time.Location, error) {
-	return time.LoadLocation(c.Timezone)
+	return &config, nil
 }

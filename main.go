@@ -1,104 +1,78 @@
-// Package main provides the ZuidWest FM Audio Logger application that records
-// hourly audio segments from live icecast streams and serves them via HTTP API.
+// Package main is the entry point for the audio recorder application
 package main
 
 import (
 	"context"
 	"flag"
-	"fmt"
+	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
-	"github.com/oszuidwest/zwfm-audiologger/internal/logger"
+	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
+	"github.com/oszuidwest/zwfm-audiologger/internal/scheduler"
 	"github.com/oszuidwest/zwfm-audiologger/internal/server"
-	"github.com/oszuidwest/zwfm-audiologger/internal/version"
 )
 
-// main is the entry point for the ZuidWest FM Audio Logger application.
-// It handles command-line flags, initializes configuration and logging,
-// and starts both the recording service and HTTP server concurrently.
 func main() {
-	configFile := flag.String("config", "streams.json", "Path to configuration file")
-	testRecord := flag.Bool("test-record", false, "Run a single test recording and exit")
-	showVersion := flag.Bool("version", false, "Show version information")
+	// Parse command-line flags
+	configFile := flag.String("config", "config.json", "Config file path")
+	testMode := flag.Bool("test", false, "Test recording (10 seconds)")
 	flag.Parse()
 
-	if *showVersion {
-		fmt.Println(version.Info())
-		return
-	}
-
+	// Load configuration
 	cfg, err := config.Load(*configFile)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	log := logger.New(cfg.LogFile, cfg.Debug)
-	defer func() {
-		if err := log.Close(); err != nil {
-			panic(err)
-		}
-	}()
-
-	log.Info("Starting ZuidWest FM Audio Logger", "version", version.Version, "commit", version.Commit)
-
+	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		log.Info("Shutdown signal received")
+		log.Println("Shutting down...")
 		cancel()
 	}()
 
-	if *testRecord {
-		rec := recorder.New(cfg, log)
-		log.Info("Running test recording")
+	// Initialize components
+	recorderManager := recorder.New(cfg)
+	postProcessor := postprocessor.New(cfg.RecordingsDir)
 
-		if err := rec.RecordAll(ctx); err != nil {
-			log.Error("test recording failed", "error", err)
-			cancel()
-			os.Exit(1)
-		}
-
-		log.Info("Test recording completed")
+	// Run test mode if requested
+	if *testMode {
+		recorderManager.Test(ctx)
 		return
 	}
 
+	// Start components
 	var wg sync.WaitGroup
 
-	// Unified architecture: Run recorder and HTTP server concurrently
-	// Recorder: Cron-scheduled hourly recordings at minute 0
-	// Server: Real-time API access to recordings and live segment generation
+	// Start HTTP server for trigger endpoints
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		rec := recorder.New(cfg, log)
-		log.Info("Starting continuous recording service")
-
-		if err := rec.StartCron(ctx); err != nil {
-			log.Error("recording service failed", "error", err)
+		httpServer := server.New(cfg, recorderManager, postProcessor)
+		if err := httpServer.Start(); err != nil {
+			log.Printf("HTTP server error: %v", err)
 		}
 	}()
 
+	// Start scheduler for ALL stations (always record as failsafe)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		srv := server.NewGinServer(cfg, log)
-		log.Info("starting HTTP server", "port", cfg.Server.Port)
-
-		if err := srv.Start(ctx, strconv.Itoa(cfg.Server.Port)); err != nil {
-			log.Error("HTTP server failed", "error", err)
-		}
+		sched := scheduler.New(cfg, recorderManager, postProcessor)
+		sched.Start(ctx)
 	}()
 
+	// Wait for all components to finish
 	wg.Wait()
-	log.Info("ZuidWest FM Audio Logger stopped")
 }
