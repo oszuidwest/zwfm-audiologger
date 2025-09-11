@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"runtime"
 	"sync"
 	"syscall"
 	_ "time/tzdata" // Ensures timezone functionality across all platforms
@@ -20,22 +19,6 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-func init() {
-	// Configure maximum processor count for concurrent operations
-	maxProcs := runtime.GOMAXPROCS(0)
-	numCPU := runtime.NumCPU()
-
-	log.Printf("Starting with GOMAXPROCS=%d, NumCPU=%d (Go %s)",
-		maxProcs, numCPU, runtime.Version())
-
-	// Log CPU configuration for monitoring resource allocation
-	if maxProcs != numCPU {
-		log.Printf("Container CPU limit detected: using %d of %d available CPUs", maxProcs, numCPU)
-		log.Printf("This indicates the application is running in a containerized environment with CPU constraints")
-	} else {
-		log.Printf("Using all available CPUs - running on bare metal or unrestricted container")
-	}
-}
 
 func main() {
 	// Parse command-line flags

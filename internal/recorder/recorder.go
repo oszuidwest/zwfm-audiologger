@@ -5,6 +5,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
@@ -48,6 +49,8 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 
 	if err := cmd.Run(); err != nil {
 		log.Printf("Failed recording for %s: %v", name, err)
+		log.Printf("FFmpeg command: ffmpeg %s", strings.Join(cmd.Args[1:], " "))
+		log.Printf("Stream URL: %s", station.StreamURL)
 		return
 	}
 
