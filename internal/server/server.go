@@ -77,15 +77,25 @@ type Server struct {
 	recorder      *recorder.Manager
 	postProcessor *postprocessor.Manager
 	mux           *http.ServeMux
+	accessLogger  *log.Logger
 }
 
 // New creates a new HTTP server
 func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Server {
+	// Create access log file
+	accessLogFile, err := os.OpenFile("/var/log/access.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Fallback to stdout if can't create log file
+		log.Printf("Warning: cannot create access.log, falling back to stdout: %v", err)
+		accessLogFile = os.Stdout
+	}
+
 	s := &Server{
 		config:        cfg,
 		recorder:      rec,
 		postProcessor: pp,
 		mux:           http.NewServeMux(),
+		accessLogger:  log.New(accessLogFile, "", log.LstdFlags),
 	}
 
 	// Setup routes
@@ -137,7 +147,7 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(lrw, r)
 
-		log.Printf("%s %s %d %v", r.Method, r.URL.Path, lrw.statusCode, time.Since(start))
+		s.accessLogger.Printf("%s %s %d %v", r.Method, r.URL.Path, lrw.statusCode, time.Since(start))
 	})
 }
 

@@ -4,7 +4,10 @@ package utils
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 )
 
 // RecordCommand creates an FFmpeg command for recording audio streams with
@@ -21,10 +24,24 @@ func RecordCommand(ctx context.Context, streamURL, duration, outputFile string) 
 		"-y", outputFile,
 	}
 
+	var cmd *exec.Cmd
 	if ctx != nil {
-		return exec.CommandContext(ctx, "ffmpeg", args...)
+		cmd = exec.CommandContext(ctx, "ffmpeg", args...)
+	} else {
+		cmd = exec.Command("ffmpeg", args...)
 	}
-	return exec.Command("ffmpeg", args...)
+
+	// DEBUG: Log the exact command being executed
+	fmt.Printf("EXEC DEBUG: Full command: %s %s\n", cmd.Path, strings.Join(args, " "))
+	fmt.Printf("EXEC DEBUG: Context: %v\n", ctx)
+	fmt.Printf("EXEC DEBUG: Working dir: %s\n", func() string {
+		if wd, err := os.Getwd(); err == nil {
+			return wd
+		}
+		return "unknown"
+	}())
+
+	return cmd
 }
 
 // TrimCommand creates an FFmpeg command for extracting a specific time range
@@ -34,6 +51,16 @@ func TrimCommand(inputFile, startOffset, duration, outputFile string) *exec.Cmd 
 		"-i", inputFile,
 		"-ss", startOffset,
 		"-t", duration,
+		"-c", "copy",
+		"-y", outputFile,
+	)
+}
+
+// RemuxCommand creates an FFmpeg command for remuxing a file to the proper container format
+// based on the output file extension, using stream copy for fast, lossless operation.
+func RemuxCommand(inputFile, outputFile string) *exec.Cmd {
+	return exec.Command("ffmpeg",
+		"-i", inputFile,
 		"-c", "copy",
 		"-y", outputFile,
 	)

@@ -19,7 +19,6 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-
 func main() {
 	// Parse command-line flags
 	configFile := flag.String("config", "config.json", "Config file path")

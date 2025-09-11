@@ -34,10 +34,10 @@ func StationDir(recordingsDir, stationName string) string {
 
 // FindRecordingFile locates a recording file by timestamp and station
 func FindRecordingFile(recordingsDir, stationName, timestamp string) (string, error) {
-	// Check for temporary .rec file first (in case rename failed)
-	recPath := RecordingPath(recordingsDir, stationName, timestamp, ".rec")
-	if info, err := os.Stat(recPath); err == nil && info.Mode().IsRegular() {
-		return recPath, nil
+	// Check for temporary .mkv file first (in case remux failed)
+	mkvPath := RecordingPath(recordingsDir, stationName, timestamp, ".mkv")
+	if info, err := os.Stat(mkvPath); err == nil && info.Mode().IsRegular() {
+		return mkvPath, nil
 	}
 
 	// Search for files matching the timestamp pattern
