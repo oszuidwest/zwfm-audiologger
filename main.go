@@ -77,7 +77,13 @@ func main() {
 
 	// Initialize components
 	recorderManager := recorder.New(cfg)
-	postProcessor := postprocessor.New(cfg.RecordingsDir)
+
+	// Build station buffer offsets map for postprocessor
+	stationOffsets := make(map[string]int)
+	for name, station := range cfg.Stations {
+		stationOffsets[name] = station.BufferOffset
+	}
+	postProcessor := postprocessor.New(cfg.RecordingsDir, stationOffsets)
 
 	// Run test mode if requested
 	if *testMode {

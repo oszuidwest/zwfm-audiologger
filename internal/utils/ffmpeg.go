@@ -46,3 +46,15 @@ func RemuxCommand(inputFile, outputFile string) *exec.Cmd {
 		"-y", outputFile,
 	)
 }
+
+// ConcatCommand creates an FFmpeg command for concatenating multiple audio files
+// using the concat demuxer with a file list, using stream copy for lossless operation.
+func ConcatCommand(concatListFile, outputFile string) *exec.Cmd {
+	return exec.Command("ffmpeg",
+		"-f", "concat",
+		"-safe", "0",
+		"-i", concatListFile,
+		"-c", "copy",
+		"-y", outputFile,
+	)
+}

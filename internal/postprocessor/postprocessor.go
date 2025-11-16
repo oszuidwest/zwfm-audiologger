@@ -15,24 +15,37 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-// Recording represents a program recording within an hour.
-type Recording struct {
+// Segment represents a single program segment with start and end times.
+type Segment struct {
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time"`
-	Station   string    `json:"station"`
-	Hour      string    `json:"hour"` // Format: "2006-01-02-15"
+}
+
+// Recording represents program segments within an hour.
+type Recording struct {
+	Segments []Segment `json:"segments"`
+	Station  string    `json:"station"`
+	Hour     string    `json:"hour"` // Format: "2006-01-02-15"
 }
 
 // Manager handles post-processing of recordings.
 type Manager struct {
 	recordingsDir string
-	mu            sync.RWMutex
+	stations      map[string]struct {
+		bufferOffset int
+	}
+	mu sync.RWMutex
 }
 
 // New creates a new post-processor manager.
-func New(recordingsDir string) *Manager {
+func New(recordingsDir string, stations map[string]int) *Manager {
+	stationMap := make(map[string]struct{ bufferOffset int })
+	for name, offset := range stations {
+		stationMap[name] = struct{ bufferOffset int }{bufferOffset: offset}
+	}
 	return &Manager{
 		recordingsDir: recordingsDir,
+		stations:      stationMap,
 	}
 }
 
@@ -52,43 +65,60 @@ func (m *Manager) MarkProgram(station string, markType MarkType) {
 	defer m.mu.Unlock()
 
 	now := utils.Now()
-	hour := now.Format(utils.HourlyTimestampFormat)
 
-	// Load existing recording or create new one for MarkStart
+	// Apply buffer offset if configured for this station
+	adjustedTime := now
+	if stationInfo, exists := m.stations[station]; exists && stationInfo.bufferOffset > 0 {
+		adjustedTime = now.Add(-time.Duration(stationInfo.bufferOffset) * time.Second)
+		slog.Info("Applied buffer offset", "station", station, "offset_seconds", stationInfo.bufferOffset, "original_time", now.Format("15:04:05"), "adjusted_time", adjustedTime.Format("15:04:05"))
+	}
+
+	hour := adjustedTime.Format(utils.HourlyTimestampFormat)
+
+	// Load existing recording or create new one
 	recording := m.loadRecording(station, hour)
+	if recording == nil {
+		recording = &Recording{
+			Segments: []Segment{},
+			Station:  station,
+			Hour:     hour,
+		}
+	}
 
 	switch markType {
 	case MarkStart:
-		if recording == nil {
-			recording = &Recording{
-				StartTime: now,
-				Station:   station,
-				Hour:      hour,
-			}
-		} else {
-			// Update start time if recording already exists
-			recording.StartTime = now
-		}
-		slog.Info("Program started", "station", station, "time", now.Format("15:04:05"))
+		// Add a new segment with start time
+		recording.Segments = append(recording.Segments, Segment{
+			StartTime: adjustedTime,
+		})
+		slog.Info("Program segment started", "station", station, "time", adjustedTime.Format("15:04:05"), "segment", len(recording.Segments))
 		m.saveRecording(recording)
 
 	case MarkEnd:
-		if recording != nil {
-			recording.EndTime = now
-			slog.Info("Program ended", "station", station, "time", now.Format("15:04:05"))
-			m.saveRecording(recording)
+		// Find the last incomplete segment and set its end time
+		if len(recording.Segments) > 0 {
+			lastIdx := len(recording.Segments) - 1
+			if recording.Segments[lastIdx].EndTime.IsZero() {
+				recording.Segments[lastIdx].EndTime = adjustedTime
+				slog.Info("Program segment ended", "station", station, "time", adjustedTime.Format("15:04:05"), "segment", lastIdx+1)
+				m.saveRecording(recording)
+			} else {
+				slog.Warn("No open segment to end", "station", station)
+			}
+		} else {
+			slog.Warn("No segments to end", "station", station)
 		}
 	}
 }
 
-// ProcessRecording processes a completed hourly recording to remove commercials.
+// ProcessRecording processes a completed hourly recording to extract and concatenate program segments.
 func (m *Manager) ProcessRecording(station, hour string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	recording := m.loadRecording(station, hour)
-	if recording == nil {
-		slog.Info("No recording info found, keeping full recording", "station", station, "hour", hour)
+	if recording == nil || len(recording.Segments) == 0 {
+		slog.Info("No segments found, keeping full recording", "station", station, "hour", hour)
 		return nil
 	}
 
@@ -109,34 +139,107 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 		return fmt.Errorf("invalid hour format: %s", hour)
 	}
 
-	// Calculate offsets
-	startOffset := recording.StartTime.Sub(recordingStart).Seconds()
-	if startOffset < 0 {
-		startOffset = 0
+	// Extract each segment to a temporary file
+	var segmentFiles []string
+	for i, segment := range recording.Segments {
+		// Calculate offsets for this segment
+		startOffset := segment.StartTime.Sub(recordingStart).Seconds()
+		if startOffset < 0 {
+			startOffset = 0
+		}
+
+		var duration float64
+		if !segment.EndTime.IsZero() {
+			duration = segment.EndTime.Sub(segment.StartTime).Seconds()
+		} else {
+			// If no end time, go to the end of the recording
+			duration = 3600 - startOffset
+		}
+
+		// Skip zero or negative duration segments
+		if duration <= 0 {
+			slog.Warn("Skipping invalid segment", "station", station, "segment", i+1, "duration", duration)
+			continue
+		}
+
+		segmentFile := utils.RecordingPath(m.recordingsDir, station, fmt.Sprintf("%s.segment%d", hour, i), ext)
+		segmentFiles = append(segmentFiles, segmentFile)
+
+		slog.Info("Extracting segment", "station", station, "segment", i+1, "start_offset", startOffset, "duration", duration)
+
+		cmd := utils.TrimCommand(inputFile, fmt.Sprintf("%.0f", startOffset), fmt.Sprintf("%.0f", duration), segmentFile)
+		if err := cmd.Run(); err != nil {
+			// Clean up any segment files created so far
+			for _, sf := range segmentFiles {
+				os.Remove(sf)
+			}
+			return fmt.Errorf("ffmpeg segment extraction failed for segment %d: %w", i+1, err)
+		}
 	}
 
-	var duration float64
-	if !recording.EndTime.IsZero() {
-		duration = recording.EndTime.Sub(recording.StartTime).Seconds()
-	} else {
-		// If no end time, go to the end of the recording
-		duration = 3600 - startOffset // Assuming 1-hour recordings
+	// If no valid segments were extracted, keep the original
+	if len(segmentFiles) == 0 {
+		slog.Info("No valid segments extracted, keeping full recording", "station", station, "hour", hour)
+		return nil
 	}
 
-	slog.Info("Trimming recording", "station", station, "start_offset", startOffset, "duration", duration)
+	// If only one segment, just rename it
+	if len(segmentFiles) == 1 {
+		// Backup original
+		if err := os.Rename(inputFile, originalBackup); err != nil {
+			os.Remove(segmentFiles[0])
+			return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
+		}
 
-	// Process to temporary file
-	cmd := utils.TrimCommand(inputFile, fmt.Sprintf("%.0f", startOffset), fmt.Sprintf("%.0f", duration), tempOutput)
+		// Move segment to final location
+		if err := os.Rename(segmentFiles[0], inputFile); err != nil {
+			// Restore original on failure
+			os.Rename(originalBackup, inputFile)
+			os.Remove(segmentFiles[0])
+			return fmt.Errorf("failed to move segment to final location: %w", err)
+		}
 
+		slog.Info("Processed recording with single segment", "file", inputFile, "backup", originalBackup)
+		return nil
+	}
+
+	// Create concat file listing all segments
+	concatListFile := utils.RecordingPath(m.recordingsDir, station, hour+".concat.txt", "")
+	concatContent := ""
+	for _, segmentFile := range segmentFiles {
+		// FFmpeg concat requires absolute paths or paths with proper escaping
+		concatContent += fmt.Sprintf("file '%s'\n", segmentFile)
+	}
+	if err := os.WriteFile(concatListFile, []byte(concatContent), constants.FilePermissions); err != nil {
+		// Clean up segment files
+		for _, sf := range segmentFiles {
+			os.Remove(sf)
+		}
+		return fmt.Errorf("failed to create concat list file: %w", err)
+	}
+
+	// Concatenate all segments
+	slog.Info("Concatenating segments", "station", station, "count", len(segmentFiles))
+	cmd := utils.ConcatCommand(concatListFile, tempOutput)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg trim failed for %s: %w", inputFile, err)
+		// Clean up
+		for _, sf := range segmentFiles {
+			os.Remove(sf)
+		}
+		os.Remove(concatListFile)
+		os.Remove(tempOutput)
+		return fmt.Errorf("ffmpeg concat failed: %w", err)
 	}
+
+	// Clean up segment files and concat list
+	for _, sf := range segmentFiles {
+		os.Remove(sf)
+	}
+	os.Remove(concatListFile)
 
 	// Rename original to .original backup
 	if err := os.Rename(inputFile, originalBackup); err != nil {
-		if removeErr := os.Remove(tempOutput); removeErr != nil {
-			slog.Warn("failed to clean up temp file", "file", tempOutput, "error", removeErr)
-		}
+		os.Remove(tempOutput)
 		return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
 	}
 
@@ -146,15 +249,11 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 		if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
 			slog.Error("failed to restore original file", "file", inputFile, "error", restoreErr)
 		}
-		if removeErr := os.Remove(tempOutput); removeErr != nil {
-			slog.Warn("failed to remove temp file", "file", tempOutput, "error", removeErr)
-		}
+		os.Remove(tempOutput)
 		return fmt.Errorf("failed to replace %s with processed version: %w", inputFile, err)
 	}
 
-	slog.Info("Processed recording", "file", inputFile, "backup", originalBackup)
-
-	// Processing complete - JSON file remains for reference
+	slog.Info("Processed recording with multiple segments", "file", inputFile, "backup", originalBackup, "segments", len(segmentFiles))
 
 	return nil
 }
