@@ -171,7 +171,9 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 		if err := cmd.Run(); err != nil {
 			// Clean up any segment files created so far
 			for _, sf := range segmentFiles {
-				os.Remove(sf)
+				if removeErr := os.Remove(sf); removeErr != nil {
+					slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
+				}
 			}
 			return fmt.Errorf("ffmpeg segment extraction failed for segment %d: %w", i+1, err)
 		}
@@ -187,15 +189,21 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 	if len(segmentFiles) == 1 {
 		// Backup original
 		if err := os.Rename(inputFile, originalBackup); err != nil {
-			os.Remove(segmentFiles[0])
+			if removeErr := os.Remove(segmentFiles[0]); removeErr != nil {
+				slog.Warn("failed to remove temporary segment file", "file", segmentFiles[0], "error", removeErr)
+			}
 			return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
 		}
 
 		// Move segment to final location
 		if err := os.Rename(segmentFiles[0], inputFile); err != nil {
 			// Restore original on failure
-			os.Rename(originalBackup, inputFile)
-			os.Remove(segmentFiles[0])
+			if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
+				slog.Error("failed to restore original file", "file", inputFile, "error", restoreErr)
+			}
+			if removeErr := os.Remove(segmentFiles[0]); removeErr != nil {
+				slog.Warn("failed to remove temporary segment file", "file", segmentFiles[0], "error", removeErr)
+			}
 			return fmt.Errorf("failed to move segment to final location: %w", err)
 		}
 
@@ -213,7 +221,9 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 	if err := os.WriteFile(concatListFile, []byte(concatContent), constants.FilePermissions); err != nil {
 		// Clean up segment files
 		for _, sf := range segmentFiles {
-			os.Remove(sf)
+			if removeErr := os.Remove(sf); removeErr != nil {
+				slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
+			}
 		}
 		return fmt.Errorf("failed to create concat list file: %w", err)
 	}
@@ -224,22 +234,34 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 	if err := cmd.Run(); err != nil {
 		// Clean up
 		for _, sf := range segmentFiles {
-			os.Remove(sf)
+			if removeErr := os.Remove(sf); removeErr != nil {
+				slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
+			}
 		}
-		os.Remove(concatListFile)
-		os.Remove(tempOutput)
+		if removeErr := os.Remove(concatListFile); removeErr != nil {
+			slog.Warn("failed to remove concat list file", "file", concatListFile, "error", removeErr)
+		}
+		if removeErr := os.Remove(tempOutput); removeErr != nil {
+			slog.Warn("failed to remove temporary output file", "file", tempOutput, "error", removeErr)
+		}
 		return fmt.Errorf("ffmpeg concat failed: %w", err)
 	}
 
 	// Clean up segment files and concat list
 	for _, sf := range segmentFiles {
-		os.Remove(sf)
+		if removeErr := os.Remove(sf); removeErr != nil {
+			slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
+		}
 	}
-	os.Remove(concatListFile)
+	if removeErr := os.Remove(concatListFile); removeErr != nil {
+		slog.Warn("failed to remove concat list file", "file", concatListFile, "error", removeErr)
+	}
 
 	// Rename original to .original backup
 	if err := os.Rename(inputFile, originalBackup); err != nil {
-		os.Remove(tempOutput)
+		if removeErr := os.Remove(tempOutput); removeErr != nil {
+			slog.Warn("failed to remove temporary output file", "file", tempOutput, "error", removeErr)
+		}
 		return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
 	}
 
@@ -249,7 +271,9 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 		if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
 			slog.Error("failed to restore original file", "file", inputFile, "error", restoreErr)
 		}
-		os.Remove(tempOutput)
+		if removeErr := os.Remove(tempOutput); removeErr != nil {
+			slog.Warn("failed to remove temporary output file", "file", tempOutput, "error", removeErr)
+		}
 		return fmt.Errorf("failed to replace %s with processed version: %w", inputFile, err)
 	}
 
