@@ -122,41 +122,47 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 		return nil
 	}
 
-	// Find the input file with any audio extension
 	inputFile, err := utils.FindRecordingFile(m.recordingsDir, station, hour)
 	if err != nil {
 		return fmt.Errorf("recording file not found for %s hour %s: %w", station, hour, err)
 	}
 
-	// Keep original as backup, processed will take its name
-	ext := utils.Extension(inputFile)
-	originalBackup := utils.RecordingPath(m.recordingsDir, station, hour+".original", ext)
-	tempOutput := utils.RecordingPath(m.recordingsDir, station, hour+".temp", ext)
-
-	// Parse the hour to get the recording start time
 	recordingStart, err := utils.ParseHourlyTimestamp(hour)
 	if err != nil {
 		return fmt.Errorf("invalid hour format: %s", hour)
 	}
 
-	// Extract each segment to a temporary file
+	ext := utils.Extension(inputFile)
+	segmentFiles, err := m.extractSegments(inputFile, recording, station, hour, ext, recordingStart)
+	if err != nil {
+		return err
+	}
+
+	if len(segmentFiles) == 0 {
+		slog.Info("No valid segments extracted, keeping full recording", "station", station, "hour", hour)
+		return nil
+	}
+
+	originalBackup := utils.RecordingPath(m.recordingsDir, station, hour+".original", ext)
+
+	if len(segmentFiles) == 1 {
+		return m.processSingleSegment(inputFile, originalBackup, segmentFiles[0])
+	}
+
+	tempOutput := utils.RecordingPath(m.recordingsDir, station, hour+".temp", ext)
+	concatListFile := utils.RecordingPath(m.recordingsDir, station, hour+".concat.txt", "")
+
+	return m.processMultipleSegments(inputFile, originalBackup, tempOutput, concatListFile, segmentFiles, station)
+}
+
+// extractSegments extracts each program segment to a temporary file.
+func (m *Manager) extractSegments(inputFile string, recording *Recording, station, hour, ext string, recordingStart time.Time) ([]string, error) {
 	var segmentFiles []string
-	for i, segment := range recording.Segments {
-		// Calculate offsets for this segment
-		startOffset := segment.StartTime.Sub(recordingStart).Seconds()
-		if startOffset < 0 {
-			startOffset = 0
-		}
 
-		var duration float64
-		if !segment.EndTime.IsZero() {
-			duration = segment.EndTime.Sub(segment.StartTime).Seconds()
-		} else {
-			// If no end time, go to the end of the recording
-			duration = 3600 - startOffset
-		}
+	for i := range recording.Segments {
+		segment := &recording.Segments[i]
+		startOffset, duration := calculateSegmentTiming(segment, recordingStart)
 
-		// Skip zero or negative duration segments
 		if duration <= 0 {
 			slog.Warn("Skipping invalid segment", "station", station, "segment", i+1, "duration", duration)
 			continue
@@ -169,117 +175,106 @@ func (m *Manager) ProcessRecording(station, hour string) error {
 
 		cmd := utils.TrimCommand(inputFile, fmt.Sprintf("%.0f", startOffset), fmt.Sprintf("%.0f", duration), segmentFile)
 		if err := cmd.Run(); err != nil {
-			// Clean up any segment files created so far
-			for _, sf := range segmentFiles {
-				if removeErr := os.Remove(sf); removeErr != nil {
-					slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
-				}
-			}
-			return fmt.Errorf("ffmpeg segment extraction failed for segment %d: %w", i+1, err)
+			cleanupFiles(segmentFiles)
+			return nil, fmt.Errorf("ffmpeg segment extraction failed for segment %d: %w", i+1, err)
 		}
 	}
 
-	// If no valid segments were extracted, keep the original
-	if len(segmentFiles) == 0 {
-		slog.Info("No valid segments extracted, keeping full recording", "station", station, "hour", hour)
-		return nil
+	return segmentFiles, nil
+}
+
+// calculateSegmentTiming calculates start offset and duration for a segment.
+func calculateSegmentTiming(segment *Segment, recordingStart time.Time) (startOffset, duration float64) {
+	startOffset = segment.StartTime.Sub(recordingStart).Seconds()
+	if startOffset < 0 {
+		startOffset = 0
 	}
 
-	// If only one segment, just rename it
-	if len(segmentFiles) == 1 {
-		// Backup original
-		if err := os.Rename(inputFile, originalBackup); err != nil {
-			if removeErr := os.Remove(segmentFiles[0]); removeErr != nil {
-				slog.Warn("failed to remove temporary segment file", "file", segmentFiles[0], "error", removeErr)
-			}
-			return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
-		}
-
-		// Move segment to final location
-		if err := os.Rename(segmentFiles[0], inputFile); err != nil {
-			// Restore original on failure
-			if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
-				slog.Error("failed to restore original file", "file", inputFile, "error", restoreErr)
-			}
-			if removeErr := os.Remove(segmentFiles[0]); removeErr != nil {
-				slog.Warn("failed to remove temporary segment file", "file", segmentFiles[0], "error", removeErr)
-			}
-			return fmt.Errorf("failed to move segment to final location: %w", err)
-		}
-
-		slog.Info("Processed recording with single segment", "file", inputFile, "backup", originalBackup)
-		return nil
+	if !segment.EndTime.IsZero() {
+		duration = segment.EndTime.Sub(segment.StartTime).Seconds()
+	} else {
+		duration = 3600 - startOffset
 	}
 
-	// Create concat file listing all segments
-	concatListFile := utils.RecordingPath(m.recordingsDir, station, hour+".concat.txt", "")
-	concatContent := ""
-	for _, segmentFile := range segmentFiles {
-		// FFmpeg concat requires absolute paths or paths with proper escaping
-		concatContent += fmt.Sprintf("file '%s'\n", segmentFile)
-	}
-	if err := os.WriteFile(concatListFile, []byte(concatContent), constants.FilePermissions); err != nil {
-		// Clean up segment files
-		for _, sf := range segmentFiles {
-			if removeErr := os.Remove(sf); removeErr != nil {
-				slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
-			}
-		}
-		return fmt.Errorf("failed to create concat list file: %w", err)
-	}
+	return startOffset, duration
+}
 
-	// Concatenate all segments
-	slog.Info("Concatenating segments", "station", station, "count", len(segmentFiles))
-	cmd := utils.ConcatCommand(concatListFile, tempOutput)
-	if err := cmd.Run(); err != nil {
-		// Clean up
-		for _, sf := range segmentFiles {
-			if removeErr := os.Remove(sf); removeErr != nil {
-				slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
-			}
-		}
-		if removeErr := os.Remove(concatListFile); removeErr != nil {
-			slog.Warn("failed to remove concat list file", "file", concatListFile, "error", removeErr)
-		}
-		if removeErr := os.Remove(tempOutput); removeErr != nil {
-			slog.Warn("failed to remove temporary output file", "file", tempOutput, "error", removeErr)
-		}
-		return fmt.Errorf("ffmpeg concat failed: %w", err)
-	}
-
-	// Clean up segment files and concat list
-	for _, sf := range segmentFiles {
-		if removeErr := os.Remove(sf); removeErr != nil {
-			slog.Warn("failed to remove temporary segment file", "file", sf, "error", removeErr)
-		}
-	}
-	if removeErr := os.Remove(concatListFile); removeErr != nil {
-		slog.Warn("failed to remove concat list file", "file", concatListFile, "error", removeErr)
-	}
-
-	// Rename original to .original backup
+// processSingleSegment handles the case of a single extracted segment.
+func (m *Manager) processSingleSegment(inputFile, originalBackup, segmentFile string) error {
 	if err := os.Rename(inputFile, originalBackup); err != nil {
-		if removeErr := os.Remove(tempOutput); removeErr != nil {
-			slog.Warn("failed to remove temporary output file", "file", tempOutput, "error", removeErr)
-		}
+		cleanupFiles([]string{segmentFile})
 		return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
 	}
 
-	// Rename processed to original name for predictable URLs
-	if err := os.Rename(tempOutput, inputFile); err != nil {
-		// Try to restore original if rename fails
+	if err := os.Rename(segmentFile, inputFile); err != nil {
 		if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
 			slog.Error("failed to restore original file", "file", inputFile, "error", restoreErr)
 		}
-		if removeErr := os.Remove(tempOutput); removeErr != nil {
-			slog.Warn("failed to remove temporary output file", "file", tempOutput, "error", removeErr)
+		cleanupFiles([]string{segmentFile})
+		return fmt.Errorf("failed to move segment to final location: %w", err)
+	}
+
+	slog.Info("Processed recording with single segment", "file", inputFile, "backup", originalBackup)
+	return nil
+}
+
+// processMultipleSegments handles concatenating multiple segments.
+func (m *Manager) processMultipleSegments(inputFile, originalBackup, tempOutput, concatListFile string, segmentFiles []string, station string) error {
+	concatContent := buildConcatContent(segmentFiles)
+	if err := os.WriteFile(concatListFile, []byte(concatContent), constants.FilePermissions); err != nil {
+		cleanupFiles(segmentFiles)
+		return fmt.Errorf("failed to create concat list file: %w", err)
+	}
+
+	slog.Info("Concatenating segments", "station", station, "count", len(segmentFiles))
+	cmd := utils.ConcatCommand(concatListFile, tempOutput)
+	if err := cmd.Run(); err != nil {
+		cleanupFiles(segmentFiles)
+		cleanupFiles([]string{concatListFile, tempOutput})
+		return fmt.Errorf("ffmpeg concat failed: %w", err)
+	}
+
+	cleanupFiles(segmentFiles)
+	cleanupFiles([]string{concatListFile})
+
+	return m.finalizeProcessedFile(inputFile, originalBackup, tempOutput, len(segmentFiles))
+}
+
+// finalizeProcessedFile moves the processed file to its final location.
+func (m *Manager) finalizeProcessedFile(inputFile, originalBackup, tempOutput string, segmentCount int) error {
+	if err := os.Rename(inputFile, originalBackup); err != nil {
+		cleanupFiles([]string{tempOutput})
+		return fmt.Errorf("failed to backup original %s: %w", inputFile, err)
+	}
+
+	if err := os.Rename(tempOutput, inputFile); err != nil {
+		if restoreErr := os.Rename(originalBackup, inputFile); restoreErr != nil {
+			slog.Error("failed to restore original file", "file", inputFile, "error", restoreErr)
 		}
+		cleanupFiles([]string{tempOutput})
 		return fmt.Errorf("failed to replace %s with processed version: %w", inputFile, err)
 	}
 
-	slog.Info("Processed recording with multiple segments", "file", inputFile, "backup", originalBackup, "segments", len(segmentFiles))
-
+	slog.Info("Processed recording with multiple segments", "file", inputFile, "backup", originalBackup, "segments", segmentCount)
 	return nil
+}
+
+// buildConcatContent builds the FFmpeg concat file content.
+func buildConcatContent(segmentFiles []string) string {
+	var content strings.Builder
+	for _, segmentFile := range segmentFiles {
+		content.WriteString(fmt.Sprintf("file '%s'\n", segmentFile))
+	}
+	return content.String()
+}
+
+// cleanupFiles removes temporary files, logging warnings on failure.
+func cleanupFiles(files []string) {
+	for _, f := range files {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			slog.Warn("failed to remove temporary file", "file", f, "error", err)
+		}
+	}
 }
 
 // saveRecording saves recording information to a JSON file.
