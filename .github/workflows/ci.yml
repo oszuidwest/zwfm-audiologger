@@ -25,12 +25,13 @@ jobs:
       contents: read
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
         go-version-file: 'go.mod'
+        cache: true
     
     - name: Download dependencies
       run: go mod download
@@ -50,7 +51,13 @@ jobs:
         fi
     
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v8
+      uses: golangci/golangci-lint-action@v9
       with:
         version: latest
         args: --timeout=5m
+
+    - name: Check for dead code
+      run: go run golang.org/x/tools/cmd/deadcode@latest ./...
+
+    - name: Run govulncheck
+      run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
