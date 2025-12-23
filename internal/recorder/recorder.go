@@ -31,7 +31,7 @@ func New(cfg *config.Config) *Manager {
 }
 
 // Scheduled performs a scheduled recording with 1 hour duration.
-func (m *Manager) Scheduled(name string, station config.Station) {
+func (m *Manager) Scheduled(name string, station *config.Station) {
 	timestamp := utils.HourlyTimestamp()
 
 	// Fetch metadata if configured
@@ -43,7 +43,7 @@ func (m *Manager) Scheduled(name string, station config.Station) {
 }
 
 // record performs the actual recording operation.
-func (m *Manager) record(name string, station config.Station, timestamp, duration string, timeout time.Duration) {
+func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration) {
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
 		slog.Error("failed to create directory", "station", name, "error", err, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
@@ -112,7 +112,7 @@ func (m *Manager) record(name string, station config.Station, timestamp, duratio
 }
 
 // saveMetadata fetches and saves metadata for a recording.
-func (m *Manager) saveMetadata(stationName string, station config.Station, timestamp string) {
+func (m *Manager) saveMetadata(stationName string, station *config.Station, timestamp string) {
 	meta := m.metadataFetcher.Fetch(
 		station.MetadataURL,
 		station.MetadataPath,
@@ -135,7 +135,7 @@ func (m *Manager) Test(ctx context.Context) {
 
 	for name, station := range m.config.Stations {
 		timestamp := "test-" + utils.TestTimestamp()
-		m.record(name, station, timestamp, constants.TestRecordingDuration, constants.TestRecordingTimeout)
+		m.record(name, &station, timestamp, constants.TestRecordingDuration, constants.TestRecordingTimeout)
 	}
 
 	slog.Info("Test recordings completed")

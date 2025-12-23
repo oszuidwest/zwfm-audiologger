@@ -83,14 +83,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 // runAllRecordings records all configured stations.
 func (s *Scheduler) runAllRecordings() {
 	for name, station := range s.config.Stations {
-		go func(stationName string, stationConfig config.Station) {
+		go func(stationName string, stationConfig *config.Station) {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("panic in recording", "station", stationName, "panic", r)
 				}
 			}()
 			s.recordAndProcess(stationName, stationConfig)
-		}(name, station)
+		}(name, &station)
 	}
 }
 
@@ -105,7 +105,7 @@ func (s *Scheduler) runCleanup() {
 }
 
 // recordAndProcess handles recording and post-processing.
-func (s *Scheduler) recordAndProcess(name string, station config.Station) {
+func (s *Scheduler) recordAndProcess(name string, station *config.Station) {
 	hour := utils.HourlyTimestamp()
 
 	// Do the recording
