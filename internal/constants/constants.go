@@ -5,12 +5,14 @@ package constants
 import "time"
 
 const (
-	// HourlyRecordingDuration is the duration in seconds for hourly recordings.
-	HourlyRecordingDuration = "3600"
+	// HourlyRecordingDurationSeconds is the duration in seconds for hourly recordings.
+	HourlyRecordingDurationSeconds = 3600
 	// HourlyRecordingTimeout is the maximum allowed time for hourly recordings.
 	HourlyRecordingTimeout = 65 * time.Minute
-	// TestRecordingDuration is the duration in seconds for test recordings.
-	TestRecordingDuration = "10"
+	// MinimumRecordingSeconds is the minimum duration in seconds for a mid-hour recording to be worthwhile.
+	MinimumRecordingSeconds = 300 // 5 minutes
+	// TestRecordingDurationSeconds is the duration in seconds for test recordings.
+	TestRecordingDurationSeconds = 10
 	// TestRecordingTimeout is the maximum allowed time for test recordings.
 	TestRecordingTimeout = 30 * time.Second
 
@@ -31,4 +33,11 @@ const (
 	FilePermissions = 0o644
 	// LogFilePermissions defines the file mode for log files.
 	LogFilePermissions = 0o640
+
+	// DefaultDiskThresholdPercent is the default disk usage percentage threshold for alerts.
+	DefaultDiskThresholdPercent = 10
+	// DefaultIncompleteThresholdSeconds is the default threshold for incomplete recording alerts.
+	DefaultIncompleteThresholdSeconds = 3000 // 50 minutes
+	// DefaultSMTPPort is the default SMTP port for email alerts.
+	DefaultSMTPPort = 587
 )

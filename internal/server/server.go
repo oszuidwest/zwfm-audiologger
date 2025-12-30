@@ -7,40 +7,25 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
-	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
-	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 )
 
 // Server handles HTTP requests for recording control.
 type Server struct {
-	config        *config.Config
-	recorder      *recorder.Manager
-	postProcessor *postprocessor.Manager
-	mux           *http.ServeMux
-	accessLogger  *slog.Logger
+	config   *config.Config
+	recorder *recorder.Manager
+	mux      *http.ServeMux
 }
 
 // New creates a new HTTP server.
-func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Server {
-	// Create access log file
-	accessLogFile, err := os.OpenFile(constants.DefaultAccessLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.LogFilePermissions)
-	if err != nil {
-		// Fallback to stdout if can't create log file
-		slog.Warn("Cannot create access.log, falling back to stdout", "error", err)
-		accessLogFile = os.Stdout
-	}
-
+func New(cfg *config.Config, rec *recorder.Manager) *Server {
 	s := &Server{
-		config:        cfg,
-		recorder:      rec,
-		postProcessor: pp,
-		mux:           http.NewServeMux(),
-		accessLogger:  slog.New(slog.NewJSONHandler(accessLogFile, nil)),
+		config:   cfg,
+		recorder: rec,
+		mux:      http.NewServeMux(),
 	}
 
 	// Setup routes
@@ -51,14 +36,12 @@ func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *
 
 // setupRoutes configures the HTTP routes.
 func (s *Server) setupRoutes() {
-	// Public endpoints
 	s.mux.HandleFunc("GET /status", s.handleStatus)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
-	s.mux.HandleFunc("GET /recordings/{path...}", s.handleRecordings)
 
-	// Protected endpoints with authentication
-	s.mux.HandleFunc("POST /program/start/{station}", s.authenticate(s.handleProgramStart))
-	s.mux.HandleFunc("POST /program/stop/{station}", s.authenticate(s.handleProgramStop))
+	// Serve recordings using stdlib http.FileServer
+	fileServer := http.FileServer(http.Dir(s.config.RecordingsDir))
+	s.mux.Handle("GET /recordings/", http.StripPrefix("/recordings", fileServer))
 }
 
 // Start begins listening for HTTP requests.
@@ -67,16 +50,13 @@ func (s *Server) Start(ctx context.Context) error {
 
 	slog.Info("HTTP server listening", "port", s.config.Port)
 	slog.Info("Endpoints:")
-	slog.Info("  - POST /program/start/:station (requires auth)")
-	slog.Info("  - POST /program/stop/:station (requires auth)")
 	slog.Info("  - GET /recordings/* (browse recordings)")
 	slog.Info("  - GET /status (system status)")
 	slog.Info("  - GET /health (health check)")
 
-	// Create HTTP server with logging middleware
 	server := &http.Server{
 		Addr:         addr,
-		Handler:      s.loggingMiddleware(s.mux),
+		Handler:      s.mux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -94,32 +74,6 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	return server.ListenAndServe()
-}
-
-// loggingMiddleware logs HTTP requests.
-func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Wrap ResponseWriter to capture status code
-		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(lrw, r)
-
-		s.accessLogger.Info("HTTP request", "method", r.Method, "path", r.URL.Path, "status", lrw.statusCode, "duration", time.Since(start))
-	})
-}
-
-// loggingResponseWriter wraps http.ResponseWriter to capture status code for logging purposes.
-type loggingResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-// WriteHeader captures the status code and calls the underlying ResponseWriter's WriteHeader.
-func (lrw *loggingResponseWriter) WriteHeader(code int) {
-	lrw.statusCode = code
-	lrw.ResponseWriter.WriteHeader(code)
 }
 
 // writeJSON writes a JSON response.

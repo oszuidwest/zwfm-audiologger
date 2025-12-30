@@ -13,12 +13,12 @@ import (
 	"syscall"
 	_ "time/tzdata" // Ensures timezone functionality across all platforms
 
+	"github.com/oszuidwest/zwfm-audiologger/internal/alerting"
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
-	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/scheduler"
 	"github.com/oszuidwest/zwfm-audiologger/internal/server"
-	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/timeutil"
 )
 
 // Build information variables set via ldflags during build.
@@ -58,32 +58,26 @@ func main() {
 	}
 
 	// Set the timezone from config
-	if err := utils.SetTimezone(cfg.Timezone); err != nil {
+	if err := timeutil.SetTimezone(cfg.Timezone); err != nil {
 		slog.Warn("failed to set timezone", "error", err)
 	}
 
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Create context for graceful shutdown with signal handling
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	// Setup signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		slog.Info("Shutting down...")
-		cancel()
-	}()
+	// Initialize alerter from config
+	alerterConfig := &alerting.Config{
+		WebhookURL: cfg.Alerting.WebhookURL,
+	}
+	// Only configure email alerter if explicitly enabled
+	if cfg.Alerting.Email.Enabled {
+		alerterConfig.Email = &cfg.Alerting.Email
+	}
+	alerter := alerting.NewManager(alerterConfig)
 
 	// Initialize components
-	recorderManager := recorder.New(cfg)
-
-	// Build station buffer offsets map for postprocessor
-	stationOffsets := make(map[string]int)
-	for name, station := range cfg.Stations {
-		stationOffsets[name] = station.BufferOffset
-	}
-	postProcessor := postprocessor.New(cfg.RecordingsDir, stationOffsets)
+	recorderManager := recorder.New(cfg, alerter)
 
 	// Run test mode if requested
 	if *testMode {
@@ -95,21 +89,24 @@ func main() {
 	var wg sync.WaitGroup
 
 	// Start HTTP server for trigger endpoints
-	var httpServer *server.Server
-	wg.Go(func() {
-		httpServer = server.New(cfg, recorderManager, postProcessor)
+	httpServer := server.New(cfg, recorderManager)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		if err := httpServer.Start(ctx); err != nil {
 			slog.Error("HTTP server error", "error", err)
 		}
-	})
+	}()
 
 	// Start scheduler for ALL stations (always record as failsafe)
-	wg.Go(func() {
-		sched := scheduler.New(cfg, recorderManager, postProcessor)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sched := scheduler.New(cfg, recorderManager, alerter)
 		if err := sched.Start(ctx); err != nil {
 			slog.Error("Scheduler error", "error", err)
 		}
-	})
+	}()
 
 	// Wait for all components to finish
 	wg.Wait()

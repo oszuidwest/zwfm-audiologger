@@ -1,5 +1,5 @@
-// Package utils provides FFmpeg command construction utilities.
-package utils
+// Package ffmpeg provides FFmpeg command construction and audio probing utilities.
+package ffmpeg
 
 import (
 	"context"
@@ -25,35 +25,11 @@ func RecordCommand(ctx context.Context, streamURL, duration, outputFile string) 
 	return cmd
 }
 
-// TrimCommand creates an FFmpeg command for extracting a specific time range
-// from an audio file using stream copy for fast, lossless operation.
-func TrimCommand(inputFile, startOffset, duration, outputFile string) *exec.Cmd {
-	return exec.Command("ffmpeg",
-		"-i", inputFile,
-		"-ss", startOffset,
-		"-t", duration,
-		"-c", "copy",
-		"-y", outputFile,
-	)
-}
-
 // RemuxCommand creates an FFmpeg command for remuxing a file to the proper container format
 // based on the output file extension, using stream copy for fast, lossless operation.
-func RemuxCommand(inputFile, outputFile string) *exec.Cmd {
-	return exec.Command("ffmpeg",
+func RemuxCommand(ctx context.Context, inputFile, outputFile string) *exec.Cmd {
+	return exec.CommandContext(ctx, "ffmpeg",
 		"-i", inputFile,
-		"-c", "copy",
-		"-y", outputFile,
-	)
-}
-
-// ConcatCommand creates an FFmpeg command for concatenating multiple audio files
-// using the concat demuxer with a file list, using stream copy for lossless operation.
-func ConcatCommand(concatListFile, outputFile string) *exec.Cmd {
-	return exec.Command("ffmpeg",
-		"-f", "concat",
-		"-safe", "0",
-		"-i", concatListFile,
 		"-c", "copy",
 		"-y", outputFile,
 	)

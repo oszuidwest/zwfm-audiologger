@@ -2,12 +2,15 @@
 package metadata
 
 import (
-	"encoding/json"
+	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // Fetcher handles metadata retrieval from external sources.
@@ -25,38 +28,50 @@ func New() *Fetcher {
 }
 
 // Fetch retrieves metadata from the given URL and optionally parses JSON.
-func (f *Fetcher) Fetch(url, jsonPath string, parseJSON bool) string {
+func (f *Fetcher) Fetch(ctx context.Context, url, jsonPath string, parseJSON bool) string {
 	if url == "" {
 		return ""
 	}
 
 	if parseJSON && jsonPath != "" {
-		return f.fetchAndParseJSON(url, jsonPath)
+		return f.fetchAndParseJSON(ctx, url, jsonPath)
 	}
-	return f.fetchRaw(url)
+	return f.fetchRaw(ctx, url)
 }
 
 // fetchURL retrieves raw content from a URL
-func (f *Fetcher) fetchURL(url string) ([]byte, error) {
-	resp, err := f.client.Get(url)
+func (f *Fetcher) fetchURL(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request for %s: %w", url, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch %s: %w", url, err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status code %d for %s", resp.StatusCode, url)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body from %s: %w", url, err)
 	}
 
 	return body, nil
 }
 
 // fetchRaw retrieves raw content from a URL.
-func (f *Fetcher) fetchRaw(url string) string {
-	body, err := f.fetchURL(url)
+func (f *Fetcher) fetchRaw(ctx context.Context, url string) string {
+	body, err := f.fetchURL(ctx, url)
 	if err != nil {
-		slog.Error("failed to fetch metadata", "error", err)
+		slog.Error("failed to fetch metadata", "url", url, "error", err)
 		return ""
 	}
 
@@ -64,53 +79,24 @@ func (f *Fetcher) fetchRaw(url string) string {
 }
 
 // fetchAndParseJSON retrieves and parses JSON from a URL.
-func (f *Fetcher) fetchAndParseJSON(url, jsonPath string) string {
-	body, err := f.fetchURL(url)
+func (f *Fetcher) fetchAndParseJSON(ctx context.Context, url, jsonPath string) string {
+	body, err := f.fetchURL(ctx, url)
 	if err != nil {
-		slog.Error("failed to fetch metadata", "error", err)
+		slog.Error("failed to fetch metadata", "url", url, "error", err)
 		return ""
 	}
 
-	// Parse JSON and extract value at path.
-	value := extractJSONPath(body, jsonPath)
-	if value == "" {
-		slog.Warn("JSON path not found in metadata", "json_path", jsonPath)
+	// If no path specified, return the raw body
+	if jsonPath == "" {
+		return strings.TrimSpace(string(body))
 	}
 
-	return value
-}
-
-// extractJSONPath extracts a value from JSON using simple dot notation.
-func extractJSONPath(data []byte, path string) string {
-	if path == "" {
-		return strings.TrimSpace(string(data))
-	}
-
-	// Parse as generic map for simple dot notation.
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(data, &jsonData); err != nil {
+	// Use gjson to extract value at path
+	result := gjson.GetBytes(body, jsonPath)
+	if !result.Exists() {
+		slog.Warn("JSON path not found in metadata", "url", url, "json_path", jsonPath)
 		return ""
 	}
 
-	parts := strings.Split(path, ".")
-	current := jsonData
-
-	// Navigate through the path.
-	for i, part := range parts {
-		if i == len(parts)-1 {
-			// Last part - extract the value.
-			if value, ok := current[part].(string); ok {
-				return strings.TrimSpace(value)
-			}
-			return ""
-		}
-		// Intermediate part - go deeper.
-		if next, ok := current[part].(map[string]interface{}); ok {
-			current = next
-		} else {
-			return ""
-		}
-	}
-
-	return ""
+	return strings.TrimSpace(result.String())
 }

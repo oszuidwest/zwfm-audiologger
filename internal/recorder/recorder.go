@@ -3,63 +3,106 @@ package recorder
 
 import (
 	"context"
-
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/oszuidwest/zwfm-audiologger/internal/alerting"
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
+	"github.com/oszuidwest/zwfm-audiologger/internal/ffmpeg"
 	"github.com/oszuidwest/zwfm-audiologger/internal/metadata"
-	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/timeutil"
 )
 
 // Manager handles recording operations.
 type Manager struct {
 	config          *config.Config
 	metadataFetcher *metadata.Fetcher
+	alerter         *alerting.Manager
 }
 
 // New creates a new recording manager.
-func New(cfg *config.Config) *Manager {
+func New(cfg *config.Config, alerter *alerting.Manager) *Manager {
 	return &Manager{
 		config:          cfg,
 		metadataFetcher: metadata.New(),
+		alerter:         alerter,
 	}
+}
+
+// Record performs a scheduled recording with configurable duration.
+// If duration is nil, uses the default hourly duration (3600 seconds).
+// If timestamp is empty, generates an hourly timestamp automatically.
+// This unified method handles both hourly recordings and mid-hour recordings.
+// Returns the final file path on success, or empty string on failure.
+func (m *Manager) Record(ctx context.Context, name string, station *config.Station, duration *int, timestamp string) string {
+	// Use provided timestamp or generate one for hourly recording
+	if timestamp == "" {
+		timestamp = timeutil.HourlyTimestamp()
+	}
+
+	// Fetch metadata if configured (single place for metadata logic)
+	if station.MetadataURL != "" {
+		go m.saveMetadata(ctx, name, station, timestamp)
+	}
+
+	// Determine duration and timeout based on whether custom duration was provided
+	var durationStr string
+	var timeout time.Duration
+
+	if duration == nil {
+		// Default hourly recording
+		durationStr = strconv.Itoa(constants.HourlyRecordingDurationSeconds)
+		timeout = constants.HourlyRecordingTimeout
+	} else {
+		// Custom duration (e.g., mid-hour recording)
+		durationStr = strconv.Itoa(*duration)
+		// Calculate timeout: duration + 5 minutes buffer for connection/processing
+		timeout = time.Duration(*duration)*time.Second + 5*time.Minute
+	}
+
+	return m.record(ctx, name, station, timestamp, durationStr, timeout)
 }
 
 // Scheduled performs a scheduled recording with 1 hour duration.
-func (m *Manager) Scheduled(name string, station *config.Station) {
-	timestamp := utils.HourlyTimestamp()
+// Deprecated: Use Record(ctx, name, station, nil, "") instead.
+// Returns the final file path on success, or empty string on failure.
+func (m *Manager) Scheduled(ctx context.Context, name string, station *config.Station) string {
+	return m.Record(ctx, name, station, nil, "")
+}
 
-	// Fetch metadata if configured
-	if station.MetadataURL != "" {
-		go m.saveMetadata(name, station, timestamp)
-	}
-
-	m.record(name, station, timestamp, constants.HourlyRecordingDuration, constants.HourlyRecordingTimeout)
+// ScheduledWithDuration performs a scheduled recording with a custom duration.
+// Deprecated: Use Record(ctx, name, station, &duration, timestamp) instead.
+// This is used for mid-hour recordings when the app starts mid-hour.
+// The timestamp parameter should represent the hour being recorded (for file naming).
+// Returns the final file path on success, or empty string on failure.
+func (m *Manager) ScheduledWithDuration(ctx context.Context, name string, station *config.Station, timestamp string, durationSeconds int) string {
+	return m.Record(ctx, name, station, &durationSeconds, timestamp)
 }
 
 // record performs the actual recording operation.
-func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration) {
+// Returns the final file path on success, or empty string on failure.
+func (m *Manager) record(ctx context.Context, name string, station *config.Station, timestamp, duration string, timeout time.Duration) string {
 	dir := filepath.Join(m.config.RecordingsDir, name)
-	if err := utils.EnsureDir(dir); err != nil {
+	if err := ensureDir(dir); err != nil {
 		slog.Error("failed to create directory", "station", name, "error", err, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
-		return
+		return ""
 	}
 
 	// Use .mkv extension for temporary files - supports any audio codec
-	tempFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, ".mkv")
+	tempFile := recordingPath(m.config.RecordingsDir, name, timestamp, ".mkv")
 
 	slog.Info("Recording started", "station", name, "file", tempFile)
 
 	// Create a context with a long timeout for recording
-	recordCtx, recordCancel := context.WithTimeout(context.Background(), timeout)
+	recordCtx, recordCancel := context.WithTimeout(ctx, timeout)
 	defer recordCancel()
 
-	cmd := utils.RecordCommand(recordCtx, station.StreamURL, duration, tempFile)
+	cmd := ffmpeg.RecordCommand(recordCtx, station.StreamURL, duration, tempFile)
 	slog.Debug("FFmpeg args", "args", cmd.Args)
 
 	// Capture both stdout and stderr
@@ -67,60 +110,65 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 	recordCancel() // Explicitly cancel context after FFmpeg completes
 
 	if err != nil {
-		// Limit output to first 500 bytes to avoid excessive logging
-		outputStr := string(output)
-		if len(outputStr) > 500 {
-			outputStr = outputStr[:500] + "... (truncated)"
+		slog.Error("failed recording", "station", name, "error", err, "ffmpeg_command", strings.Join(cmd.Args[1:], " "), "stream_url", station.StreamURL, "output_file", tempFile, "ffmpeg_output", ffmpeg.TruncateOutput(output, ffmpeg.MaxOutputLogLength))
+
+		// Alert on stream failure (alerter handles rate limiting internally)
+		if m.alerter != nil {
+			event := alerting.NewEvent(alerting.EventStreamOffline, name, err.Error())
+			m.alerter.Alert(ctx, event)
 		}
-		slog.Error("failed recording", "station", name, "error", err, "ffmpeg_command", strings.Join(cmd.Args[1:], " "), "stream_url", station.StreamURL, "output_file", tempFile, "ffmpeg_output", outputStr)
 
 		// Clean up temp file if it was created
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Warn("failed to clean up temp file after error", "file", tempFile, "error", err)
-		}
-		return
+		cleanupTempFile(tempFile, "recording error")
+		return ""
+	}
+
+	// Recording succeeded - alert recovery if station was previously failed
+	if m.alerter != nil {
+		event := alerting.NewEvent(alerting.EventStreamRecovered, name, "Stream has recovered and is recording normally")
+		m.alerter.Alert(ctx, event)
 	}
 
 	// Detect format from the recorded file and remux to proper container
-	format := utils.Format(tempFile)
-	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
+	// Use a 1-minute timeout for format detection (should be very quick)
+	formatCtx, formatCancel := context.WithTimeout(ctx, 1*time.Minute)
+	format := ffmpeg.DetectAudioFormat(formatCtx, tempFile)
+	formatCancel()
+	finalFile := recordingPath(m.config.RecordingsDir, name, timestamp, format)
 
 	// Remux the .mkv file to proper container format
-	remuxCmd := utils.RemuxCommand(tempFile, finalFile)
+	// Use a 5-minute timeout for remuxing (should be quick with stream copy)
+	remuxCtx, remuxCancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer remuxCancel()
+
+	remuxCmd := ffmpeg.RemuxCommand(remuxCtx, tempFile, finalFile)
 	remuxOutput, err := remuxCmd.CombinedOutput()
 	if err != nil {
-		// Limit output to first 500 bytes to avoid excessive logging
-		outputStr := string(remuxOutput)
-		if len(outputStr) > 500 {
-			outputStr = outputStr[:500] + "... (truncated)"
-		}
-		slog.Error("failed to remux recording", "station", name, "temp_file", tempFile, "final_file", finalFile, "error", err, "remux_output", outputStr)
+		slog.Error("failed to remux recording", "station", name, "temp_file", tempFile, "final_file", finalFile, "error", err, "remux_output", ffmpeg.TruncateOutput(remuxOutput, ffmpeg.MaxOutputLogLength))
 
 		// Clean up temp file when remux fails
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Warn("failed to clean up temp file after remux error", "file", tempFile, "error", err)
-		}
-		return
+		cleanupTempFile(tempFile, "remux error")
+		return ""
 	}
 
 	// Remove the temporary .mkv file after successful remux
-	if err := os.Remove(tempFile); err != nil {
-		slog.Warn("failed to remove temporary file", "file", tempFile, "error", err)
-	}
+	cleanupTempFile(tempFile, "successful remux")
 
 	slog.Info("Recording completed", "file", finalFile, "format", format)
+	return finalFile
 }
 
 // saveMetadata fetches and saves metadata for a recording.
-func (m *Manager) saveMetadata(stationName string, station *config.Station, timestamp string) {
+func (m *Manager) saveMetadata(ctx context.Context, stationName string, station *config.Station, timestamp string) {
 	meta := m.metadataFetcher.Fetch(
+		ctx,
 		station.MetadataURL,
 		station.MetadataPath,
 		station.ParseMetadata,
 	)
 
 	if meta != "" {
-		metaFile := utils.RecordingPath(m.config.RecordingsDir, stationName, timestamp, ".meta")
+		metaFile := recordingPath(m.config.RecordingsDir, stationName, timestamp, ".meta")
 		if err := os.WriteFile(metaFile, []byte(meta), constants.FilePermissions); err != nil {
 			slog.Error("failed to save metadata", "station", stationName, "file", metaFile, "error", err)
 		} else {
@@ -134,8 +182,8 @@ func (m *Manager) Test(ctx context.Context) {
 	slog.Info("Running test recordings (10 seconds each)")
 
 	for name, station := range m.config.Stations {
-		timestamp := "test-" + utils.TestTimestamp()
-		m.record(name, &station, timestamp, constants.TestRecordingDuration, constants.TestRecordingTimeout)
+		timestamp := "test-" + timeutil.TestTimestamp()
+		m.record(ctx, name, &station, timestamp, strconv.Itoa(constants.TestRecordingDurationSeconds), constants.TestRecordingTimeout)
 	}
 
 	slog.Info("Test recordings completed")
