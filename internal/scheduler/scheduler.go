@@ -116,7 +116,7 @@ func (s *Scheduler) runAllRecordings() {
 			wg.Go(func() {
 				withPanicRecovery("recording station: "+name, func() {
 					// Record and get the final file path
-					finalFile := s.recorder.Scheduled(s.ctx, name, &station)
+					finalFile := s.recorder.Record(s.ctx, name, &station, nil, "")
 
 					// Check recording duration if file was created successfully
 					if finalFile != "" {
@@ -185,7 +185,7 @@ func (s *Scheduler) runImmediateRecording(timestamp string, durationSeconds int)
 					"hour_timestamp", timestamp)
 
 				// Record and get the final file path
-				finalFile := s.recorder.ScheduledWithDuration(s.ctx, name, &station, timestamp, durationSeconds)
+				finalFile := s.recorder.Record(s.ctx, name, &station, &durationSeconds, timestamp)
 
 				// Check recording duration if file was created successfully
 				if finalFile != "" {

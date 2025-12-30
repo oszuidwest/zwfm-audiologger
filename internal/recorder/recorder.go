@@ -67,23 +67,6 @@ func (m *Manager) Record(ctx context.Context, name string, station *config.Stati
 	return m.record(ctx, name, station, timestamp, durationStr, timeout)
 }
 
-// Scheduled performs a recording with the default hourly duration.
-// Returns the final file path on success, or empty string on failure.
-//
-// Deprecated: Use Record(ctx, name, station, nil, "") instead.
-func (m *Manager) Scheduled(ctx context.Context, name string, station *config.Station) string {
-	return m.Record(ctx, name, station, nil, "")
-}
-
-// ScheduledWithDuration performs a recording with a custom duration.
-// The timestamp parameter identifies the hour being recorded for file naming.
-// Returns the final file path on success, or empty string on failure.
-//
-// Deprecated: Use Record(ctx, name, station, &duration, timestamp) instead.
-func (m *Manager) ScheduledWithDuration(ctx context.Context, name string, station *config.Station, timestamp string, durationSeconds int) string {
-	return m.Record(ctx, name, station, &durationSeconds, timestamp)
-}
-
 // record performs a recording with the given parameters.
 // Returns the final file path on success, or empty string on failure.
 func (m *Manager) record(ctx context.Context, name string, station *config.Station, timestamp, duration string, timeout time.Duration) string {
