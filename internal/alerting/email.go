@@ -1,6 +1,7 @@
 package alerting
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"mime"
 	"net"
 	"net/smtp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,20 +34,14 @@ func NewEmailAlerter(cfg *config.EmailConfig) *EmailAlerter {
 		return nil
 	}
 
-	// Default port if not specified
-	port := cfg.SMTPPort
-	if port == 0 {
-		port = 587
-	}
-
 	return &EmailAlerter{
 		config: config.EmailConfig{
 			SMTPHost: cfg.SMTPHost,
-			SMTPPort: port,
+			SMTPPort: cmp.Or(cfg.SMTPPort, 587),
 			Username: cfg.Username,
 			Password: cfg.Password,
 			FromAddr: cfg.FromAddr,
-			ToAddrs:  cfg.ToAddrs,
+			ToAddrs:  slices.Clone(cfg.ToAddrs),
 		},
 	}
 }
@@ -71,7 +68,7 @@ func (e *EmailAlerter) Send(ctx context.Context, event *Event) {
 
 // sendMail sends an email using SMTP with StartTLS support.
 func (e *EmailAlerter) sendMail(ctx context.Context, recipients []string, subject, body string) error {
-	addr := fmt.Sprintf("%s:%d", e.config.SMTPHost, e.config.SMTPPort)
+	addr := net.JoinHostPort(e.config.SMTPHost, strconv.Itoa(e.config.SMTPPort))
 
 	// Create dialer with timeout
 	dialer := &net.Dialer{Timeout: emailDialTimeout}

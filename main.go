@@ -90,23 +90,19 @@ func main() {
 
 	// Start HTTP server for trigger endpoints
 	httpServer := server.New(cfg, recorderManager)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := httpServer.Start(ctx); err != nil {
 			slog.Error("HTTP server error", "error", err)
 		}
-	}()
+	})
 
 	// Start scheduler for ALL stations (always record as failsafe)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		sched := scheduler.New(cfg, recorderManager, alerter)
 		if err := sched.Start(ctx); err != nil {
 			slog.Error("Scheduler error", "error", err)
 		}
-	}()
+	})
 
 	// Wait for all components to finish
 	wg.Wait()

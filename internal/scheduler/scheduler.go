@@ -114,19 +114,18 @@ func (s *Scheduler) runAllRecordings() {
 		var wg sync.WaitGroup
 
 		for name, station := range s.config.Stations {
-			wg.Add(1)
-			go func(stationName string, stationConfig *config.Station) {
-				defer wg.Done()
-				withPanicRecovery("recording station: "+stationName, func() {
+			station := station // Create local copy for pointer safety
+			wg.Go(func() {
+				withPanicRecovery("recording station: "+name, func() {
 					// Record and get the final file path
-					finalFile := s.recorder.Scheduled(s.ctx, stationName, stationConfig)
+					finalFile := s.recorder.Scheduled(s.ctx, name, &station)
 
 					// Check recording duration if file was created successfully
 					if finalFile != "" {
-						s.checkRecordingDuration(stationName, finalFile, constants.HourlyRecordingDurationSeconds)
+						s.checkRecordingDuration(name, finalFile, constants.HourlyRecordingDurationSeconds)
 					}
 				})
-			}(name, &station)
+			})
 		}
 
 		// Wait for all recordings to complete
@@ -180,24 +179,23 @@ func (s *Scheduler) runImmediateRecording(timestamp string, durationSeconds int)
 	var wg sync.WaitGroup
 
 	for name, station := range s.config.Stations {
-		wg.Add(1)
-		go func(stationName string, stationConfig *config.Station, expectedDuration int) {
-			defer wg.Done()
-			withPanicRecovery("immediate recording station: "+stationName, func() {
+		station := station // Create local copy for pointer safety
+		wg.Go(func() {
+			withPanicRecovery("immediate recording station: "+name, func() {
 				slog.Info("Starting immediate recording",
-					"station", stationName,
-					"duration_seconds", expectedDuration,
+					"station", name,
+					"duration_seconds", durationSeconds,
 					"hour_timestamp", timestamp)
 
 				// Record and get the final file path
-				finalFile := s.recorder.ScheduledWithDuration(s.ctx, stationName, stationConfig, timestamp, expectedDuration)
+				finalFile := s.recorder.ScheduledWithDuration(s.ctx, name, &station, timestamp, durationSeconds)
 
 				// Check recording duration if file was created successfully
 				if finalFile != "" {
-					s.checkRecordingDuration(stationName, finalFile, expectedDuration)
+					s.checkRecordingDuration(name, finalFile, durationSeconds)
 				}
 			})
-		}(name, &station, durationSeconds)
+		})
 	}
 
 	// Wait for all immediate recordings to complete

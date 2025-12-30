@@ -87,9 +87,7 @@ func (m *Manager) Alert(ctx context.Context, event *Event) {
 
 	// Send to all alerters asynchronously
 	for _, alerter := range m.alerters {
-		go func(a Alerter) {
-			a.Send(ctx, event)
-		}(alerter)
+		go alerter.Send(ctx, event)
 	}
 
 	slog.Info("Alert sent",
