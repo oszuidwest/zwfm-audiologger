@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -39,9 +41,21 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /status", s.handleStatus)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 
-	// Serve recordings using stdlib http.FileServer
+	// Serve recordings using stdlib http.FileServer, filtering out temp files
 	fileServer := http.FileServer(http.Dir(s.config.RecordingsDir))
-	s.mux.Handle("GET /recordings/", http.StripPrefix("/recordings", fileServer))
+	s.mux.Handle("GET /recordings/", http.StripPrefix("/recordings", s.filterTempFiles(fileServer)))
+}
+
+// filterTempFiles wraps a handler to reject requests for temporary .mkv files.
+func (s *Server) filterTempFiles(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Block access to .mkv temp files (recordings in progress)
+		if strings.HasSuffix(strings.ToLower(filepath.Clean(r.URL.Path)), ".mkv") {
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Start begins listening for HTTP requests.
@@ -55,11 +69,12 @@ func (s *Server) Start(ctx context.Context) error {
 	slog.Info("  - GET /health (health check)")
 
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      s.mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              addr,
+		Handler:           s.mux,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      10 * time.Minute, // Large timeout for streaming audio files
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Handle graceful shutdown

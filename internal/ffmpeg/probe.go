@@ -4,6 +4,7 @@ package ffmpeg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os/exec"
 	"strconv"
@@ -109,7 +110,7 @@ func ProbeDuration(ctx context.Context, filePath string) (float64, error) {
 	}
 
 	if result.Format.Duration == "" {
-		return 0, nil
+		return 0, errors.New("media file has no duration information")
 	}
 
 	duration, err := strconv.ParseFloat(result.Format.Duration, 64)

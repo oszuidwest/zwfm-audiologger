@@ -89,18 +89,26 @@ func (e *EmailAlerter) sendMail(ctx context.Context, recipients []string, subjec
 	defer func() { _ = client.Close() }()
 
 	// Try StartTLS if available
+	hasCredentials := e.config.Username != "" && e.config.Password != ""
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		tlsConfig := &tls.Config{
 			ServerName: e.config.SMTPHost,
 			MinVersion: tls.VersionTLS12,
 		}
 		if err := client.StartTLS(tlsConfig); err != nil {
+			// If credentials are configured, refuse to send them over plaintext
+			if hasCredentials {
+				return fmt.Errorf("StartTLS failed and credentials configured (refusing plaintext auth): %w", err)
+			}
 			slog.Warn("StartTLS failed, continuing without encryption", "error", err)
 		}
+	} else if hasCredentials {
+		// Server doesn't support STARTTLS but we have credentials
+		return fmt.Errorf("SMTP server does not support STARTTLS, refusing to send credentials in plaintext")
 	}
 
 	// Authenticate if credentials are provided
-	if e.config.Username != "" && e.config.Password != "" {
+	if hasCredentials {
 		auth := smtp.PlainAuth("", e.config.Username, e.config.Password, e.config.SMTPHost)
 		if err := client.Auth(auth); err != nil {
 			return fmt.Errorf("SMTP authentication failed: %w", err)

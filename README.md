@@ -43,7 +43,6 @@ The application requires a `config.json` file in the working directory:
       "smtp_port": 587,
       "smtp_user": "",
       "smtp_pass": "",
-      "smtp_starttls": true,
       "from": "audiologger@example.com",
       "to": ["ops@example.com"]
     },
@@ -91,7 +90,6 @@ The application requires a `config.json` file in the working directory:
 | `email.smtp_port` | int | `587` | SMTP server port |
 | `email.smtp_user` | string | - | SMTP username (optional) |
 | `email.smtp_pass` | string | - | SMTP password (optional) |
-| `email.smtp_starttls` | bool | `true` | Use StartTLS for SMTP connection |
 | `email.from` | string | - | Sender email address |
 | `email.to` | array | - | Recipient email addresses |
 | `disk_threshold_percent` | int | `10` | Alert when disk space falls below this percentage |
