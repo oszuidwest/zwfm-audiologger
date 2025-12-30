@@ -21,6 +21,7 @@ type WebhookConfig struct {
 }
 
 // WebhookAlerter sends alerts via HTTP POST to a configured webhook URL.
+// It is safe for concurrent use.
 type WebhookAlerter struct {
 	config WebhookConfig
 	client *http.Client

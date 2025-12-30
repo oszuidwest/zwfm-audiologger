@@ -22,16 +22,16 @@ func TruncateOutput(output []byte, maxLen int) string {
 	return str
 }
 
-// probeResult holds the ffprobe output structure for stream detection.
+// probeResult holds the JSON output structure for audio stream detection.
 type probeResult struct {
 	Streams []struct {
 		CodecName string `json:"codec_name"`
 	} `json:"streams"`
 }
 
-// DetectAudioFormat uses ffprobe to detect the actual format of a recorded audio file.
-// It returns the appropriate file extension based on the detected codec,
-// defaulting to ".mp3" if detection fails or context is cancelled.
+// DetectAudioFormat detects the audio format of a recorded file and returns
+// the appropriate file extension based on the codec, defaulting to ".mp3"
+// if detection fails or the context is cancelled.
 func DetectAudioFormat(ctx context.Context, filePath string) string {
 	// Run ffprobe on the file with context support
 	cmd := exec.CommandContext(ctx, "ffprobe",
@@ -80,16 +80,16 @@ func DetectAudioFormat(ctx context.Context, filePath string) string {
 	return ".mp3" // Default fallback
 }
 
-// probeFormatResult holds the ffprobe format output for duration.
+// probeFormatResult holds the JSON output structure for media format information.
 type probeFormatResult struct {
 	Format struct {
 		Duration string `json:"duration"`
 	} `json:"format"`
 }
 
-// ProbeDuration uses ffprobe to get the duration of a media file in seconds.
-// Returns the duration as a float64, or an error if the duration cannot be determined.
-// The context parameter allows the caller to cancel or timeout the ffprobe operation.
+// ProbeDuration returns the duration of a media file in seconds.
+// It returns the duration as a float64, or an error if the duration cannot be determined.
+// The context parameter allows the caller to cancel or timeout the operation.
 func ProbeDuration(ctx context.Context, filePath string) (float64, error) {
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-v", "quiet",

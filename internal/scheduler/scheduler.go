@@ -38,7 +38,7 @@ type Scheduler struct {
 	ctx      context.Context
 }
 
-// New creates a new scheduler.
+// New creates a new Scheduler with the given configuration, recorder manager, and alerter.
 func New(cfg *config.Config, rec *recorder.Manager, alerter *alerting.Manager) *Scheduler {
 	return &Scheduler{
 		config:   cfg,
@@ -47,7 +47,7 @@ func New(cfg *config.Config, rec *recorder.Manager, alerter *alerting.Manager) *
 	}
 }
 
-// Start begins the scheduling using pardnchiu/go-cron.
+// Start begins the scheduler and blocks until the context is cancelled.
 func (s *Scheduler) Start(ctx context.Context) error {
 	// Store context for use in scheduled tasks
 	s.ctx = ctx
@@ -105,9 +105,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
-// runAllRecordings records all configured stations.
-// This spawns a goroutine to manage all recordings so it doesn't block the scheduler,
-// but properly waits for all station recordings to complete before logging.
+// runAllRecordings records all configured stations concurrently.
 func (s *Scheduler) runAllRecordings() {
 	// Run the entire recording batch in a goroutine to not block the scheduler
 	go func() {
@@ -173,8 +171,7 @@ func (s *Scheduler) checkMidHourStart() {
 }
 
 // runImmediateRecording records all stations for the specified duration.
-// This is used for mid-hour recordings when the app starts mid-hour.
-// It properly waits for all station recordings to complete before logging.
+// This is used for mid-hour recordings when the app starts between hours.
 func (s *Scheduler) runImmediateRecording(timestamp string, durationSeconds int) {
 	var wg sync.WaitGroup
 
@@ -203,7 +200,7 @@ func (s *Scheduler) runImmediateRecording(timestamp string, durationSeconds int)
 	slog.Debug("All immediate recordings completed", "timestamp", timestamp)
 }
 
-// runCleanup runs the cleanup with panic recovery.
+// runCleanup removes old recordings as a scheduled task.
 func (s *Scheduler) runCleanup() {
 	withPanicRecovery("cleanup", s.cleanupOldRecordings)
 }
@@ -289,7 +286,7 @@ func (s *Scheduler) checkDiskSpace() {
 	withPanicRecovery("disk space check", s.checkDiskSpaceImpl)
 }
 
-// checkDiskSpaceImpl contains the actual disk space checking logic.
+// checkDiskSpaceImpl checks disk space and sends alerts when space is low.
 func (s *Scheduler) checkDiskSpaceImpl() {
 	// Skip if alerter is not configured
 	if s.alerter == nil {

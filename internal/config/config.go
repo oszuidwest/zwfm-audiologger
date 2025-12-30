@@ -20,7 +20,8 @@ type Config struct {
 	Stations      map[string]Station `json:"stations"`
 }
 
-// AlertingConfig represents the alerting configuration.
+// AlertingConfig holds settings for notification delivery including webhook endpoints,
+// email configuration, and thresholds for disk space and recording completeness alerts.
 type AlertingConfig struct {
 	WebhookURL                 string      `json:"webhook_url"`
 	Email                      EmailConfig `json:"email"`
@@ -28,7 +29,7 @@ type AlertingConfig struct {
 	IncompleteThresholdSeconds int         `json:"incomplete_threshold_seconds"`
 }
 
-// EmailConfig represents the email alerting configuration.
+// EmailConfig holds SMTP server settings and recipient addresses for email alert delivery.
 type EmailConfig struct {
 	Enabled  bool     `json:"enabled"`
 	SMTPHost string   `json:"smtp_host"`
@@ -41,10 +42,13 @@ type EmailConfig struct {
 
 // Station represents a radio station configuration.
 type Station struct {
-	StreamURL     string `json:"stream_url"`
-	MetadataURL   string `json:"metadata_url,omitempty"`   // Optional metadata API endpoint
-	MetadataPath  string `json:"metadata_path,omitempty"`  // JSON path for metadata extraction
-	ParseMetadata bool   `json:"parse_metadata,omitempty"` // Enable JSON parsing of metadata
+	StreamURL string `json:"stream_url"`
+	// MetadataURL is the optional metadata API endpoint for fetching stream information.
+	MetadataURL string `json:"metadata_url,omitempty"`
+	// MetadataPath is the JSON path for extracting metadata from the API response.
+	MetadataPath string `json:"metadata_path,omitempty"`
+	// ParseMetadata enables JSON parsing of the metadata response.
+	ParseMetadata bool `json:"parse_metadata,omitempty"`
 }
 
 // Load reads and parses the configuration from a JSON file and applies sensible defaults for missing values.
@@ -88,7 +92,8 @@ func Load(path string) (*Config, error) {
 	return &config, nil
 }
 
-// validateAlertingConfig validates the alerting configuration.
+// validateAlertingConfig checks that the alerting configuration is valid, including
+// webhook URL format, required email fields when enabled, and threshold boundaries.
 func validateAlertingConfig(alerting *AlertingConfig) error {
 	// Validate webhook URL if set
 	if alerting.WebhookURL != "" {

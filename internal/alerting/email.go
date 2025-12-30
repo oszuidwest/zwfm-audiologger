@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	// emailDialTimeout is the maximum time to establish connection.
+	// emailDialTimeout is the maximum time to establish a connection.
 	emailDialTimeout = 10 * time.Second
 )
 
 // EmailAlerter sends alerts via SMTP email with StartTLS support.
+// It is safe for concurrent use.
 type EmailAlerter struct {
 	config config.EmailConfig
 }

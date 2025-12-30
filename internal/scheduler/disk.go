@@ -14,7 +14,6 @@ type diskInfo struct {
 }
 
 // getDiskSpace returns disk space information for the given path.
-// Uses syscall.Statfs which works on Unix systems (darwin/linux).
 func getDiskSpace(path string) (*diskInfo, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {

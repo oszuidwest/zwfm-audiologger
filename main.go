@@ -1,4 +1,5 @@
-// Package main is the entry point for the audio recorder application.
+// Audiologger is a compliance recording service that continuously records
+// hourly audio streams from radio stations for archival purposes.
 package main
 
 import (
@@ -21,7 +22,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/timeutil"
 )
 
-// Build information variables set via ldflags during build.
+// version, buildTime, and gitCommit contain build metadata set via ldflags.
 var (
 	version   = "dev"
 	buildTime = "unknown"

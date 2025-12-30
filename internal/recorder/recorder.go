@@ -18,14 +18,14 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/timeutil"
 )
 
-// Manager handles recording operations.
+// Manager coordinates audio stream recording operations for configured stations.
 type Manager struct {
 	config          *config.Config
 	metadataFetcher *metadata.Fetcher
 	alerter         *alerting.Manager
 }
 
-// New creates a new recording manager.
+// New creates a Manager with the given configuration and alert manager.
 func New(cfg *config.Config, alerter *alerting.Manager) *Manager {
 	return &Manager{
 		config:          cfg,
@@ -34,10 +34,9 @@ func New(cfg *config.Config, alerter *alerting.Manager) *Manager {
 	}
 }
 
-// Record performs a scheduled recording with configurable duration.
-// If duration is nil, uses the default hourly duration (3600 seconds).
-// If timestamp is empty, generates an hourly timestamp automatically.
-// This unified method handles both hourly recordings and mid-hour recordings.
+// Record performs a recording for the specified station.
+// If duration is nil, records for the default hourly duration.
+// If timestamp is empty, generates a timestamp automatically.
 // Returns the final file path on success, or empty string on failure.
 func (m *Manager) Record(ctx context.Context, name string, station *config.Station, duration *int, timestamp string) string {
 	// Use provided timestamp or generate one for hourly recording
@@ -68,23 +67,24 @@ func (m *Manager) Record(ctx context.Context, name string, station *config.Stati
 	return m.record(ctx, name, station, timestamp, durationStr, timeout)
 }
 
-// Scheduled performs a scheduled recording with 1 hour duration.
-// Deprecated: Use Record(ctx, name, station, nil, "") instead.
+// Scheduled performs a recording with the default hourly duration.
 // Returns the final file path on success, or empty string on failure.
+//
+// Deprecated: Use Record(ctx, name, station, nil, "") instead.
 func (m *Manager) Scheduled(ctx context.Context, name string, station *config.Station) string {
 	return m.Record(ctx, name, station, nil, "")
 }
 
-// ScheduledWithDuration performs a scheduled recording with a custom duration.
-// Deprecated: Use Record(ctx, name, station, &duration, timestamp) instead.
-// This is used for mid-hour recordings when the app starts mid-hour.
-// The timestamp parameter should represent the hour being recorded (for file naming).
+// ScheduledWithDuration performs a recording with a custom duration.
+// The timestamp parameter identifies the hour being recorded for file naming.
 // Returns the final file path on success, or empty string on failure.
+//
+// Deprecated: Use Record(ctx, name, station, &duration, timestamp) instead.
 func (m *Manager) ScheduledWithDuration(ctx context.Context, name string, station *config.Station, timestamp string, durationSeconds int) string {
 	return m.Record(ctx, name, station, &durationSeconds, timestamp)
 }
 
-// record performs the actual recording operation.
+// record performs a recording with the given parameters.
 // Returns the final file path on success, or empty string on failure.
 func (m *Manager) record(ctx context.Context, name string, station *config.Station, timestamp, duration string, timeout time.Duration) string {
 	dir := filepath.Join(m.config.RecordingsDir, name)

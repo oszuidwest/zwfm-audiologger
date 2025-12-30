@@ -13,7 +13,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 )
 
-// Server handles HTTP requests for recording control.
+// Server is an HTTP server that provides recording control and status endpoints.
 type Server struct {
 	config   *config.Config
 	recorder *recorder.Manager

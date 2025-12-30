@@ -39,7 +39,7 @@ func (f *Fetcher) Fetch(ctx context.Context, url, jsonPath string, parseJSON boo
 	return f.fetchRaw(ctx, url)
 }
 
-// fetchURL retrieves raw content from a URL
+// fetchURL retrieves raw content from a URL.
 func (f *Fetcher) fetchURL(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -86,12 +86,12 @@ func (f *Fetcher) fetchAndParseJSON(ctx context.Context, url, jsonPath string) s
 		return ""
 	}
 
-	// If no path specified, return the raw body
+	// If no path is specified, return the raw body.
 	if jsonPath == "" {
 		return strings.TrimSpace(string(body))
 	}
 
-	// Use gjson to extract value at path
+	// Extract the value at the specified JSON path.
 	result := gjson.GetBytes(body, jsonPath)
 	if !result.Exists() {
 		slog.Warn("JSON path not found in metadata", "url", url, "json_path", jsonPath)
