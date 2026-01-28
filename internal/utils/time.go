@@ -1,4 +1,3 @@
-// Package utils provides time-related utilities for timestamp formatting and timezone management.
 package utils
 
 import (

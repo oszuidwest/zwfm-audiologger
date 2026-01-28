@@ -1,4 +1,3 @@
-// Package server provides HTTP endpoints for controlling recordings.
 package server
 
 import (

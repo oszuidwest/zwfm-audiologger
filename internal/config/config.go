@@ -31,7 +31,7 @@ type Station struct {
 // Load reads and parses the configuration from a JSON file and applies sensible defaults for missing values.
 func Load(path string) (*Config, error) {
 	// Open file for streaming JSON decoding
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // Config path is provided by the application, not user input
 	if err != nil {
 		return nil, fmt.Errorf("failed to open config file %q: %w", path, err)
 	}

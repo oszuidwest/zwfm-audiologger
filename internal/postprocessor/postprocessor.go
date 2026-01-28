@@ -301,7 +301,7 @@ func (m *Manager) saveRecording(recording *Recording) {
 func (m *Manager) loadRecording(station, hour string) *Recording {
 	recordingFile := utils.RecordingPath(m.recordingsDir, station, hour, ".recording.json")
 
-	data, err := os.ReadFile(recordingFile)
+	data, err := os.ReadFile(recordingFile) //nolint:gosec // Path is constructed from trusted internal values
 	if err != nil {
 		return nil // No recording file
 	}
