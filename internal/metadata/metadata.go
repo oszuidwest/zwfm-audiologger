@@ -36,7 +36,7 @@ func (f *Fetcher) Fetch(url, jsonPath string, parseJSON bool) string {
 	return f.fetchRaw(url)
 }
 
-// fetchURL retrieves raw content from a URL
+// fetchURL retrieves raw content from a URL.
 func (f *Fetcher) fetchURL(url string) ([]byte, error) {
 	resp, err := f.client.Get(url)
 	if err != nil {

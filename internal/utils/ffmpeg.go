@@ -1,4 +1,3 @@
-// Package utils provides FFmpeg command construction utilities.
 package utils
 
 import (
@@ -20,7 +19,7 @@ func RecordCommand(ctx context.Context, streamURL, duration, outputFile string) 
 		"-y", outputFile,
 	}
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...) //nolint:gosec // Arguments are constructed from trusted config values
 
 	return cmd
 }

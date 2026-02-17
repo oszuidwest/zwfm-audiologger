@@ -1,5 +1,5 @@
-// Package utils provides file system utilities for audio recording management,
-// including directory creation, file path construction, and file discovery.
+// Package utils provides file system utilities, FFmpeg command construction,
+// audio format detection, and time utilities for audio recording management.
 package utils
 
 import (

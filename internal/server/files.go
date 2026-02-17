@@ -1,4 +1,3 @@
-// Package server provides HTTP endpoints for controlling recordings.
 package server
 
 import (
@@ -76,7 +75,7 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 }
 
 // showDirectoryListing displays an HTML directory listing.
-func (s *Server) showDirectoryListing(w http.ResponseWriter, r *http.Request, fsPath, urlPath string) {
+func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fsPath, urlPath string) {
 	// Read directory
 	entries, err := os.ReadDir(fsPath)
 	if err != nil {
@@ -119,7 +118,7 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, r *http.Request, fs
 			fileInfo.Size = "-"
 		} else {
 			fileInfo.URL = "/recordings" + path.Join(urlPath, entry.Name())
-			fileInfo.Size = humanize.Bytes(uint64(info.Size()))
+			fileInfo.Size = humanize.Bytes(uint64(info.Size())) //nolint:gosec // File sizes are always non-negative
 		}
 
 		files = append(files, fileInfo)

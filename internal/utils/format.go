@@ -1,4 +1,3 @@
-// Package utils provides audio format detection and content type utilities.
 package utils
 
 import (
