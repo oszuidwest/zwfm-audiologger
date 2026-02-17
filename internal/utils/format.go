@@ -19,7 +19,7 @@ type ProbeResult struct {
 // defaulting to ".mp3" if detection fails.
 func Format(filePath string) string {
 	// Run ffprobe on the file
-	cmd := exec.Command("ffprobe",
+	cmd := exec.Command("ffprobe", //nolint:gosec // G204: args are from internal file paths, not user HTTP input
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",

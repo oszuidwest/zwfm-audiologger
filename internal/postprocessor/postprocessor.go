@@ -263,7 +263,7 @@ func (m *Manager) finalizeProcessedFile(inputFile, originalBackup, tempOutput st
 func buildConcatContent(segmentFiles []string) string {
 	var content strings.Builder
 	for _, segmentFile := range segmentFiles {
-		content.WriteString(fmt.Sprintf("file '%s'\n", segmentFile))
+		fmt.Fprintf(&content, "file '%s'\n", segmentFile)
 	}
 	return content.String()
 }

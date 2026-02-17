@@ -21,7 +21,7 @@ type Config struct {
 // Station represents a radio station configuration.
 type Station struct {
 	StreamURL     string `json:"stream_url"`
-	APISecret     string `json:"api_secret,omitempty"`     // Per-station API secret
+	APISecret     string `json:"api_secret,omitempty"`     //nolint:gosec // G117: intentional config field for API auth
 	MetadataURL   string `json:"metadata_url,omitempty"`   // Optional metadata API endpoint
 	MetadataPath  string `json:"metadata_path,omitempty"`  // JSON path for metadata extraction
 	ParseMetadata bool   `json:"parse_metadata,omitempty"` // Enable JSON parsing of metadata

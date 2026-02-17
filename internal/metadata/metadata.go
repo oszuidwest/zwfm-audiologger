@@ -87,7 +87,7 @@ func extractJSONPath(data []byte, path string) string {
 	}
 
 	// Parse as generic map for simple dot notation.
-	var jsonData map[string]interface{}
+	var jsonData map[string]any
 	if err := json.Unmarshal(data, &jsonData); err != nil {
 		return ""
 	}
@@ -105,7 +105,7 @@ func extractJSONPath(data []byte, path string) string {
 			return ""
 		}
 		// Intermediate part - go deeper.
-		if next, ok := current[part].(map[string]interface{}); ok {
+		if next, ok := current[part].(map[string]any); ok {
 			current = next
 		} else {
 			return ""
