@@ -38,7 +38,7 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 	fsPath := filepath.Join(s.config.RecordingsDir, filepath.Clean(urlPath))
 
 	// Get file info
-	info, err := os.Stat(fsPath)
+	info, err := os.Stat(fsPath) //nolint:gosec // G703: path is sanitized via filepath.Clean above, not raw user input
 	if err != nil {
 		if os.IsNotExist(err) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "File not found"})

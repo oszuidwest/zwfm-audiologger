@@ -13,7 +13,7 @@ import (
 // handleStatus handles requests for recording status.
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Return basic system status - recordings are scheduled, not tracked in memory.
-	status := map[string]interface{}{
+	status := map[string]any{
 		"message": "System running - recordings scheduled hourly",
 		"time":    utils.Now().Format(time.RFC3339),
 	}
