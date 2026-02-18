@@ -16,17 +16,24 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
+// Validator defines the interface for recording validation.
+type Validator interface {
+	Enqueue(filePath, station, timestamp string)
+}
+
 // Manager handles recording operations.
 type Manager struct {
 	config          *config.Config
 	metadataFetcher *metadata.Fetcher
+	validator       Validator
 }
 
 // New creates a new recording manager.
-func New(cfg *config.Config) *Manager {
+func New(cfg *config.Config, validator Validator) *Manager {
 	return &Manager{
 		config:          cfg,
 		metadataFetcher: metadata.New(),
+		validator:       validator,
 	}
 }
 
@@ -109,6 +116,11 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 	}
 
 	slog.Info("Recording completed", "file", finalFile, "format", format)
+
+	// Queue recording for validation if validator is configured.
+	if m.validator != nil {
+		m.validator.Enqueue(finalFile, name, timestamp)
+	}
 }
 
 // saveMetadata fetches and saves metadata for a recording.

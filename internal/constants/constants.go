@@ -31,4 +31,17 @@ const (
 	FilePermissions = 0o644
 	// LogFilePermissions defines the file mode for log files.
 	LogFilePermissions = 0o640
+
+	// DefaultMinDurationSecs is the minimum expected recording duration in seconds.
+	DefaultMinDurationSecs = 3500
+	// DefaultSilenceThresholdDB is the default silence detection threshold in dB.
+	DefaultSilenceThresholdDB = -40.0
+	// DefaultMaxSilenceSecs is the maximum allowed continuous silence duration.
+	DefaultMaxSilenceSecs = 5.0
+	// DefaultMaxLoopPercent is the maximum allowed percentage of looped content.
+	DefaultMaxLoopPercent = 30.0
+	// ValidationQueueSize is the capacity of the validation job queue.
+	ValidationQueueSize = 100
+	// ValidationAnalysisTimeout is the maximum time allowed for validation analysis.
+	ValidationAnalysisTimeout = 10 * time.Minute
 )

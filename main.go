@@ -18,6 +18,7 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/scheduler"
 	"github.com/oszuidwest/zwfm-audiologger/internal/server"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+	"github.com/oszuidwest/zwfm-audiologger/internal/validator"
 )
 
 // Build information variables set via ldflags during build.
@@ -74,10 +75,16 @@ func main() {
 		cancel()
 	}()
 
-	// Initialize components
-	recorderManager := recorder.New(cfg)
+	// Initialize validator if enabled.
+	var validatorManager *validator.Manager
+	if cfg.Validation != nil && cfg.Validation.Enabled {
+		validatorManager = validator.New(cfg)
+	}
 
-	// Run test mode if requested
+	// Initialize components.
+	recorderManager := recorder.New(cfg, validatorManager)
+
+	// Run test mode if requested.
 	if *testMode {
 		recorderManager.Test(ctx)
 		return
@@ -94,7 +101,7 @@ func main() {
 		}
 	})
 
-	// Start scheduler for ALL stations (always record as failsafe)
+	// Start scheduler for ALL stations (always record as failsafe).
 	wg.Go(func() {
 		sched := scheduler.New(cfg, recorderManager)
 		if err := sched.Start(ctx); err != nil {
@@ -102,6 +109,15 @@ func main() {
 		}
 	})
 
-	// Wait for all components to finish
+	// Start validator if enabled.
+	if validatorManager != nil {
+		wg.Go(func() {
+			if err := validatorManager.Start(ctx); err != nil {
+				slog.Error("Validator error", "error", err)
+			}
+		})
+	}
+
+	// Wait for all components to finish.
 	wg.Wait()
 }

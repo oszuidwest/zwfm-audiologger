@@ -16,6 +16,28 @@ type Config struct {
 	KeepDays      int                `json:"keep_days"`
 	Timezone      string             `json:"timezone"`
 	Stations      map[string]Station `json:"stations"`
+	Validation    *ValidationConfig  `json:"validation,omitempty"`
+}
+
+// ValidationConfig holds settings for recording validation.
+type ValidationConfig struct {
+	Enabled            bool                `json:"enabled"`
+	MinDurationSecs    int                 `json:"min_duration_secs"`
+	SilenceThresholdDB float64             `json:"silence_threshold_db"`
+	MaxSilenceSecs     float64             `json:"max_silence_secs"`
+	MaxLoopPercent     float64             `json:"max_loop_percent"`
+	Alert              *AlertConfig        `json:"alert,omitempty"`
+	StationRecipients  map[string][]string `json:"station_recipients,omitempty"`
+}
+
+// AlertConfig holds settings for email alerts via Microsoft Graph.
+type AlertConfig struct {
+	Enabled           bool     `json:"enabled"`
+	TenantID          string   `json:"tenant_id"`
+	ClientID          string   `json:"client_id"`
+	ClientSecret      string   `json:"client_secret"`
+	SenderEmail       string   `json:"sender_email"`
+	DefaultRecipients []string `json:"default_recipients,omitempty"`
 }
 
 // Station represents a radio station configuration.
@@ -57,6 +79,22 @@ func Load(path string) (*Config, error) {
 	}
 	if config.Timezone == "" {
 		config.Timezone = constants.DefaultTimezone
+	}
+
+	// Apply defaults for validation config if enabled.
+	if config.Validation != nil && config.Validation.Enabled {
+		if config.Validation.MinDurationSecs == 0 {
+			config.Validation.MinDurationSecs = constants.DefaultMinDurationSecs
+		}
+		if config.Validation.SilenceThresholdDB == 0 {
+			config.Validation.SilenceThresholdDB = constants.DefaultSilenceThresholdDB
+		}
+		if config.Validation.MaxSilenceSecs == 0 {
+			config.Validation.MaxSilenceSecs = constants.DefaultMaxSilenceSecs
+		}
+		if config.Validation.MaxLoopPercent == 0 {
+			config.Validation.MaxLoopPercent = constants.DefaultMaxLoopPercent
+		}
 	}
 
 	return &config, nil

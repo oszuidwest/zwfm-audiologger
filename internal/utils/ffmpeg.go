@@ -33,4 +33,3 @@ func RemuxCommand(inputFile, outputFile string) *exec.Cmd {
 		"-y", outputFile,
 	)
 }
-
