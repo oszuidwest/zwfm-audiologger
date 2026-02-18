@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 )
@@ -21,4 +22,22 @@ func EnsureDir(dir string) error {
 // RecordingPath constructs a path for a recording file.
 func RecordingPath(recordingsDir, stationName, timestamp, extension string) string {
 	return filepath.Join(recordingsDir, stationName, timestamp+extension)
+}
+
+// SidecarPath constructs a sidecar file path by replacing the extension.
+func SidecarPath(recordingPath, newExt string) string {
+	dir := filepath.Dir(recordingPath)
+	baseName := strings.TrimSuffix(filepath.Base(recordingPath), filepath.Ext(recordingPath))
+	return filepath.Join(dir, baseName+newExt)
+}
+
+// IsAudioFile checks if a filename has a supported audio extension.
+func IsAudioFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".mp3", ".aac", ".ogg", ".opus", ".flac", ".m4a", ".wav":
+		return true
+	default:
+		return false
+	}
 }

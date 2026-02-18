@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
 // probeFormat holds the ffprobe format output structure.
@@ -22,18 +22,17 @@ type probeFormat struct {
 	} `json:"format"`
 }
 
+// withAnalysisTimeout creates a context with the standard analysis timeout.
+func withAnalysisTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
+}
+
 // analyzeDuration uses ffprobe to get the duration of a recording in seconds.
 func (m *Manager) analyzeDuration(ctx context.Context, file string) (float64, error) {
-	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
+	ctx, cancel := withAnalysisTimeout(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffprobe", //nolint:gosec // G204: args are from internal file paths
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format",
-		file,
-	)
-
+	cmd := utils.ProbeCommand(ctx, file)
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("ffprobe failed: %w", err)
@@ -58,18 +57,13 @@ var silenceRegex = regexp.MustCompile(`silence_(start|end|duration):\s*([\d.]+)`
 // analyzeSilence detects silence periods in the recording and returns the maximum
 // continuous silence duration in seconds.
 func (m *Manager) analyzeSilence(ctx context.Context, file string) (float64, error) {
-	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
+	ctx, cancel := withAnalysisTimeout(ctx)
 	defer cancel()
 
-	threshold := fmt.Sprintf("%ddB", int(m.config.Validation.SilenceThresholdDB))
-	minDuration := fmt.Sprintf("%.1f", m.config.Validation.MaxSilenceSecs)
+	thresholdDB := int(m.config.Validation.SilenceThresholdDB)
+	minDuration := m.config.Validation.MaxSilenceSecs
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", //nolint:gosec // G204: args are from internal file paths
-		"-i", file,
-		"-af", fmt.Sprintf("silencedetect=noise=%s:d=%s", threshold, minDuration),
-		"-f", "null",
-		"-",
-	)
+	cmd := utils.SilenceDetectCommand(ctx, file, thresholdDB, minDuration)
 
 	// silencedetect outputs to stderr.
 	var stderr bytes.Buffer
@@ -98,16 +92,10 @@ func (m *Manager) analyzeSilence(ctx context.Context, file string) (float64, err
 // analyzeLoops detects looping/repeating content by analyzing audio energy patterns.
 // It returns the estimated percentage of content that appears to be looped.
 func (m *Manager) analyzeLoops(ctx context.Context, file string) (float64, error) {
-	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
+	ctx, cancel := withAnalysisTimeout(ctx)
 	defer cancel()
 
-	// Use astats to get per-second RMS energy values.
-	cmd := exec.CommandContext(ctx, "ffmpeg", //nolint:gosec // G204: args are from internal file paths
-		"-i", file,
-		"-af", "astats=metadata=1:reset=1,ametadata=print:file=-",
-		"-f", "null",
-		"-",
-	)
+	cmd := utils.AudioStatsCommand(ctx, file)
 
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout

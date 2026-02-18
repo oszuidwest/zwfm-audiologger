@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
+	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -24,13 +25,8 @@ const (
 	graphScope       = "https://graph.microsoft.com/.default"
 	tokenURLTemplate = "https://login.microsoftonline.com/%s/oauth2/v2.0/token" //nolint:gosec // URL template, not a credential
 
-	// Retry settings.
-	maxRetries       = 3
-	initialRetryWait = 1 * time.Second
-	maxRetryWait     = 30 * time.Second
-
-	// HTTP client timeout.
-	httpTimeout = 30 * time.Second
+	emailSubjectPrefix = "[Audio Logger]"
+	emailContentType   = "HTML"
 )
 
 // guidPattern matches the standard GUID format.
@@ -47,7 +43,7 @@ type Alerter struct {
 // NewAlerter creates a new MS Graph email alerter.
 func NewAlerter(cfg *config.AlertConfig, stationRecipients map[string][]string) *Alerter {
 	if err := validateCredentials(cfg); err != nil {
-		slog.Error("Invalid Graph credentials", "error", err)
+		slog.Error("invalid graph credentials", "error", err)
 		return nil
 	}
 
@@ -60,7 +56,7 @@ func NewAlerter(cfg *config.AlertConfig, stationRecipients map[string][]string) 
 	}
 
 	// Configure base HTTP client with timeout.
-	baseClient := &http.Client{Timeout: httpTimeout}
+	baseClient := &http.Client{Timeout: constants.HTTPClientTimeout}
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, baseClient)
 	httpClient := conf.Client(ctx)
 
@@ -74,17 +70,11 @@ func NewAlerter(cfg *config.AlertConfig, stationRecipients map[string][]string) 
 
 // validateCredentials checks that required credential fields are present and valid.
 func validateCredentials(cfg *config.AlertConfig) error {
-	if cfg.TenantID == "" {
-		return fmt.Errorf("tenant ID is required")
+	if err := validateGUIDField(cfg.TenantID, "tenant ID"); err != nil {
+		return err
 	}
-	if !guidPattern.MatchString(cfg.TenantID) {
-		return fmt.Errorf("tenant ID must be a valid GUID")
-	}
-	if cfg.ClientID == "" {
-		return fmt.Errorf("client ID is required")
-	}
-	if !guidPattern.MatchString(cfg.ClientID) {
-		return fmt.Errorf("client ID must be a valid GUID")
+	if err := validateGUIDField(cfg.ClientID, "client ID"); err != nil {
+		return err
 	}
 	if cfg.ClientSecret == "" {
 		return fmt.Errorf("client secret is required")
@@ -95,11 +85,22 @@ func validateCredentials(cfg *config.AlertConfig) error {
 	return nil
 }
 
+// validateGUIDField validates that a field contains a valid GUID.
+func validateGUIDField(value, fieldName string) error {
+	if value == "" {
+		return fmt.Errorf("%s is required", fieldName)
+	}
+	if !guidPattern.MatchString(value) {
+		return fmt.Errorf("%s must be a valid GUID", fieldName)
+	}
+	return nil
+}
+
 // Send sends an alert email for an invalid validation result.
 func (a *Alerter) Send(ctx context.Context, result *ValidationResult) error {
 	recipients := a.getRecipients(result.Station)
 	if len(recipients) == 0 {
-		slog.Warn("No alert recipients configured", "station", result.Station)
+		slog.Warn("no alert recipients configured", "station", result.Station)
 		return nil
 	}
 
@@ -143,50 +144,69 @@ type graphEmailAddress struct {
 
 // buildMessage creates an MS Graph email message.
 func (a *Alerter) buildMessage(result *ValidationResult, recipients []string) *graphMailRequest {
-	subject := fmt.Sprintf("[Audio Logger] Validation failed: %s - %s", result.Station, result.Timestamp)
-
-	var contentBuilder strings.Builder
-	contentBuilder.WriteString("<html><body>")
-	contentBuilder.WriteString("<h2>Recording Validation Failed</h2>")
-	contentBuilder.WriteString("<table style='border-collapse: collapse;'>")
-	contentBuilder.WriteString(fmt.Sprintf("<tr><td><strong>Station:</strong></td><td>%s</td></tr>", result.Station))
-	contentBuilder.WriteString(fmt.Sprintf("<tr><td><strong>Timestamp:</strong></td><td>%s</td></tr>", result.Timestamp))
-	contentBuilder.WriteString(fmt.Sprintf("<tr><td><strong>Duration:</strong></td><td>%.1f seconds</td></tr>", result.DurationSecs))
-	contentBuilder.WriteString(fmt.Sprintf("<tr><td><strong>Silence:</strong></td><td>%.1f%%</td></tr>", result.SilencePercent))
-	contentBuilder.WriteString(fmt.Sprintf("<tr><td><strong>Loop:</strong></td><td>%.1f%%</td></tr>", result.LoopPercent))
-	contentBuilder.WriteString("</table>")
-
-	if len(result.Issues) > 0 {
-		contentBuilder.WriteString("<h3>Issues:</h3><ul>")
-		for _, issue := range result.Issues {
-			contentBuilder.WriteString(fmt.Sprintf("<li>%s</li>", issue))
-		}
-		contentBuilder.WriteString("</ul>")
-	}
-
-	contentBuilder.WriteString(fmt.Sprintf("<p><small>Validated at: %s</small></p>", result.ValidatedAt.Format(time.RFC3339)))
-	contentBuilder.WriteString("</body></html>")
-
-	toRecipients := make([]graphRecipient, 0, len(recipients))
-	for _, addr := range recipients {
-		addr = strings.TrimSpace(addr)
-		if addr != "" {
-			toRecipients = append(toRecipients, graphRecipient{
-				EmailAddress: graphEmailAddress{Address: addr},
-			})
-		}
-	}
+	subject := fmt.Sprintf("%s Validation failed: %s - %s", emailSubjectPrefix, result.Station, result.Timestamp)
+	content := buildEmailContent(result)
+	toRecipients := buildRecipientList(recipients)
 
 	return &graphMailRequest{
 		Message: graphMessage{
 			Subject: subject,
 			Body: graphBody{
-				ContentType: "HTML",
-				Content:     contentBuilder.String(),
+				ContentType: emailContentType,
+				Content:     content,
 			},
 			ToRecipients: toRecipients,
 		},
 	}
+}
+
+// buildEmailContent constructs the HTML email body.
+func buildEmailContent(result *ValidationResult) string {
+	var b strings.Builder
+
+	b.WriteString("<html><body>")
+	b.WriteString("<h2>Recording Validation Failed</h2>")
+	b.WriteString("<table style='border-collapse: collapse;'>")
+
+	writeTableRow(&b, "Station", result.Station)
+	writeTableRow(&b, "Timestamp", result.Timestamp)
+	writeTableRow(&b, "Duration", fmt.Sprintf("%.1f seconds", result.DurationSecs))
+	writeTableRow(&b, "Silence", fmt.Sprintf("%.1f%%", result.SilencePercent))
+	writeTableRow(&b, "Loop", fmt.Sprintf("%.1f%%", result.LoopPercent))
+
+	b.WriteString("</table>")
+
+	if len(result.Issues) > 0 {
+		b.WriteString("<h3>Issues:</h3><ul>")
+		for _, issue := range result.Issues {
+			b.WriteString(fmt.Sprintf("<li>%s</li>", issue))
+		}
+		b.WriteString("</ul>")
+	}
+
+	b.WriteString(fmt.Sprintf("<p><small>Validated at: %s</small></p>", result.ValidatedAt.Format(time.RFC3339)))
+	b.WriteString("</body></html>")
+
+	return b.String()
+}
+
+// writeTableRow writes an HTML table row to the builder.
+func writeTableRow(b *strings.Builder, label, value string) {
+	fmt.Fprintf(b, "<tr><td><strong>%s:</strong></td><td>%s</td></tr>", label, value)
+}
+
+// buildRecipientList converts email addresses to Graph API recipient format.
+func buildRecipientList(recipients []string) []graphRecipient {
+	result := make([]graphRecipient, 0, len(recipients))
+	for _, addr := range recipients {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			result = append(result, graphRecipient{
+				EmailAddress: graphEmailAddress{Address: addr},
+			})
+		}
+	}
+	return result
 }
 
 // sendWithRetry sends an email with automatic retries for transient failures.
@@ -195,13 +215,13 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 
 	jsonData, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	var lastErr error
-	retryWait := initialRetryWait
+	retryWait := constants.AlertRetryInitialWait
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; attempt <= constants.AlertRetryMax; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -210,20 +230,20 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 			}
 			// Exponential backoff.
 			retryWait *= 2
-			if retryWait > maxRetryWait {
-				retryWait = maxRetryWait
+			if retryWait > constants.AlertRetryMaxWait {
+				retryWait = constants.AlertRetryMaxWait
 			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(jsonData))
 		if err != nil {
-			return fmt.Errorf("create request: %w", err)
+			return fmt.Errorf("failed to create request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := a.httpClient.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("send request: %w", err)
+			lastErr = fmt.Errorf("failed to send request: %w", err)
 			continue
 		}
 
@@ -232,7 +252,7 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 
 		switch resp.StatusCode {
 		case http.StatusAccepted, http.StatusOK, http.StatusNoContent:
-			slog.Info("Alert email sent", "recipients", len(message.Message.ToRecipients))
+			slog.Info("alert email sent", "recipients", len(message.Message.ToRecipients))
 			return nil
 		case http.StatusTooManyRequests:
 			// Parse Retry-After header if present.

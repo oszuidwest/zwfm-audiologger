@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
 // ValidationJob represents a file to be validated.
@@ -85,9 +85,9 @@ func (m *Manager) Enqueue(filePath, station, timestamp string) {
 
 	select {
 	case m.queue <- job:
-		slog.Debug("Queued for validation", "file", filePath)
+		slog.Debug("queued for validation", "file", filePath)
 	default:
-		slog.Warn("Validation queue full, skipping", "file", filePath)
+		slog.Warn("validation queue full, skipping", "file", filePath)
 	}
 }
 
@@ -101,7 +101,7 @@ func (m *Manager) scanUnvalidated() {
 		entries, err := os.ReadDir(stationDir)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				slog.Warn("Failed to scan station directory", "station", stationName, "error", err)
+				slog.Warn("failed to scan station directory", "station", stationName, "error", err)
 			}
 			continue
 		}
@@ -114,33 +114,23 @@ func (m *Manager) scanUnvalidated() {
 			name := entry.Name()
 
 			// Skip non-audio files and validation/metadata files.
-			if !isAudioFile(name) {
+			if !utils.IsAudioFile(name) {
 				continue
 			}
 
 			// Check if validation file exists.
-			baseName := strings.TrimSuffix(name, filepath.Ext(name))
-			validationFile := filepath.Join(stationDir, baseName+".validation.json")
+			filePath := filepath.Join(stationDir, name)
+			validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)
 
 			if _, err := os.Stat(validationFile); os.IsNotExist(err) {
-				filePath := filepath.Join(stationDir, name)
+				baseName := filepath.Base(name)
+				baseName = baseName[:len(baseName)-len(filepath.Ext(baseName))]
 				m.Enqueue(filePath, stationName, baseName)
 			}
 		}
 	}
 
 	slog.Info("Finished scanning for unvalidated recordings")
-}
-
-// isAudioFile checks if a filename has an audio extension.
-func isAudioFile(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	switch ext {
-	case ".mp3", ".aac", ".ogg", ".opus", ".flac", ".m4a", ".wav":
-		return true
-	default:
-		return false
-	}
 }
 
 // processJob validates a single recording.
@@ -157,55 +147,45 @@ func (m *Manager) processJob(job ValidationJob) {
 	// Analyze duration.
 	duration, err := m.analyzeDuration(m.ctx, job.FilePath)
 	if err != nil {
-		slog.Error("Duration analysis failed", "file", job.FilePath, "error", err)
-		result.Issues = append(result.Issues, fmt.Sprintf("duration analysis failed: %v", err))
-		result.Valid = false
+		m.recordAnalysisError(result, "duration", job.FilePath, err)
 	} else {
 		result.DurationSecs = duration
 		minDuration := float64(m.config.Validation.MinDurationSecs)
 		if duration < minDuration {
-			result.Issues = append(result.Issues, fmt.Sprintf("duration too short: %.1fs (min: %.1fs)", duration, minDuration))
-			result.Valid = false
+			m.recordIssue(result, fmt.Sprintf("duration too short: %.1fs (min: %.1fs)", duration, minDuration))
 		}
 	}
 
 	// Analyze silence.
 	maxSilence, err := m.analyzeSilence(m.ctx, job.FilePath)
 	if err != nil {
-		slog.Error("Silence analysis failed", "file", job.FilePath, "error", err)
-		result.Issues = append(result.Issues, fmt.Sprintf("silence analysis failed: %v", err))
-		result.Valid = false
+		m.recordAnalysisError(result, "silence", job.FilePath, err)
 	} else {
 		// Calculate silence as percentage of total duration.
 		if result.DurationSecs > 0 {
 			result.SilencePercent = (maxSilence / result.DurationSecs) * 100
 		}
 		if maxSilence > m.config.Validation.MaxSilenceSecs {
-			result.Issues = append(result.Issues, fmt.Sprintf("silence detected: %.1fs continuous (max: %.1fs)", maxSilence, m.config.Validation.MaxSilenceSecs))
-			result.Valid = false
+			m.recordIssue(result, fmt.Sprintf("silence detected: %.1fs continuous (max: %.1fs)", maxSilence, m.config.Validation.MaxSilenceSecs))
 		}
 	}
 
 	// Analyze loops.
 	loopPercent, err := m.analyzeLoops(m.ctx, job.FilePath)
 	if err != nil {
-		slog.Error("Loop analysis failed", "file", job.FilePath, "error", err)
-		result.Issues = append(result.Issues, fmt.Sprintf("loop analysis failed: %v", err))
-		result.Valid = false
+		m.recordAnalysisError(result, "loop", job.FilePath, err)
 	} else {
 		result.LoopPercent = loopPercent
 		if loopPercent > m.config.Validation.MaxLoopPercent {
-			result.Issues = append(result.Issues, fmt.Sprintf("loop detected: %.1f%% (max: %.1f%%)", loopPercent, m.config.Validation.MaxLoopPercent))
-			result.Valid = false
+			m.recordIssue(result, fmt.Sprintf("loop detected: %.1f%% (max: %.1f%%)", loopPercent, m.config.Validation.MaxLoopPercent))
 		}
 	}
 
 	// Save validation result.
-	baseName := strings.TrimSuffix(filepath.Base(job.FilePath), filepath.Ext(job.FilePath))
-	validationFile := filepath.Join(filepath.Dir(job.FilePath), baseName+".validation.json")
+	validationFile := utils.SidecarPath(job.FilePath, constants.ValidationFileSuffix)
 
 	if err := result.Save(validationFile); err != nil {
-		slog.Error("Failed to save validation result", "file", validationFile, "error", err)
+		slog.Error("failed to save validation result", "file", validationFile, "error", err)
 	} else {
 		slog.Info("Validation result saved", "file", validationFile, "valid", result.Valid)
 	}
@@ -213,7 +193,20 @@ func (m *Manager) processJob(job ValidationJob) {
 	// Send alert if invalid and alerter is configured.
 	if !result.Valid && m.alerter != nil {
 		if err := m.alerter.Send(m.ctx, result); err != nil {
-			slog.Error("Failed to send validation alert", "error", err)
+			slog.Error("failed to send validation alert", "error", err)
 		}
 	}
+}
+
+// recordAnalysisError logs an analysis error and records it in the result.
+func (m *Manager) recordAnalysisError(result *ValidationResult, analysisName, filePath string, err error) {
+	slog.Error(fmt.Sprintf("failed to analyze %s", analysisName), "file", filePath, "error", err)
+	result.Issues = append(result.Issues, fmt.Sprintf("%s analysis failed: %v", analysisName, err))
+	result.Valid = false
+}
+
+// recordIssue adds an issue to the result and marks it as invalid.
+func (m *Manager) recordIssue(result *ValidationResult, issue string) {
+	result.Issues = append(result.Issues, issue)
+	result.Valid = false
 }

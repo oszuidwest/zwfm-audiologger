@@ -44,4 +44,16 @@ const (
 	ValidationQueueSize = 100
 	// ValidationAnalysisTimeout is the maximum time allowed for validation analysis.
 	ValidationAnalysisTimeout = 10 * time.Minute
+
+	// HTTPClientTimeout is the default timeout for HTTP client requests.
+	HTTPClientTimeout = 30 * time.Second
+	// AlertRetryMax is the maximum number of retry attempts for alert sending.
+	AlertRetryMax = 3
+	// AlertRetryInitialWait is the initial wait time between retry attempts.
+	AlertRetryInitialWait = 1 * time.Second
+	// AlertRetryMaxWait is the maximum wait time between retry attempts.
+	AlertRetryMaxWait = 30 * time.Second
+
+	// ValidationFileSuffix is the file extension for validation result files.
+	ValidationFileSuffix = ".validation.json"
 )
