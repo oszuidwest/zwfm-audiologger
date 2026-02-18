@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
-	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	cron "github.com/pardnchiu/go-cron"
@@ -17,29 +16,20 @@ import (
 
 // Scheduler manages scheduled recordings and cleanup tasks.
 type Scheduler struct {
-	config        *config.Config
-	recorder      *recorder.Manager
-	postProcessor *postprocessor.Manager
+	config   *config.Config
+	recorder *recorder.Manager
 }
 
 // New creates a new scheduler.
-func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Scheduler {
+func New(cfg *config.Config, rec *recorder.Manager) *Scheduler {
 	return &Scheduler{
-		config:        cfg,
-		recorder:      rec,
-		postProcessor: pp,
+		config:   cfg,
+		recorder: rec,
 	}
 }
 
 // Start begins the scheduling using pardnchiu/go-cron.
 func (s *Scheduler) Start(ctx context.Context) error {
-	// Process any pending recordings on startup
-	go func() {
-		if err := s.postProcessor.ProcessPendingRecordings(); err != nil {
-			slog.Error("failed to process pending recordings", "error", err)
-		}
-	}()
-
 	// Create scheduler using the global timezone (already set in main)
 	scheduler, err := cron.New(cron.Config{
 		Location: utils.AppTimezone,
@@ -89,7 +79,7 @@ func (s *Scheduler) runAllRecordings() {
 					slog.Error("panic in recording", "station", stationName, "panic", r)
 				}
 			}()
-			s.recordAndProcess(stationName, stationConfig)
+			s.recorder.Scheduled(stationName, stationConfig)
 		}(name, &station)
 	}
 }
@@ -102,19 +92,6 @@ func (s *Scheduler) runCleanup() {
 		}
 	}()
 	s.cleanupOldRecordings()
-}
-
-// recordAndProcess handles recording and post-processing.
-func (s *Scheduler) recordAndProcess(name string, station *config.Station) {
-	hour := utils.HourlyTimestamp()
-
-	// Do the recording
-	s.recorder.Scheduled(name, station)
-
-	// After recording completes, process it to remove commercials if segments were marked
-	if err := s.postProcessor.ProcessRecording(name, hour); err != nil {
-		slog.Error("failed to post-process recording", "station", name, "error", err)
-	}
 }
 
 // cleanupOldRecordings removes recordings older than configured keep_days.

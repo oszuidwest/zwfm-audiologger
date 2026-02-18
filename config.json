@@ -6,14 +6,12 @@
   "stations": {
     "zuidwest": {
       "stream_url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
-      "api_secret": "zuidwest-secret-key-here",
       "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",
       "metadata_path": "fm.now",
       "parse_metadata": true
     },
     "rucphen": {
       "stream_url": "https://icecast.zuidwest.cloud/radiorucphen.aac",
-      "api_secret": "rucphen-secret-key-here",
       "metadata_url": "https://rucphen.zuidwest.cloud/proxy.php",
       "metadata_path": "fm.now",
       "parse_metadata": true

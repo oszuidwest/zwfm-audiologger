@@ -1,11 +1,9 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
@@ -25,28 +23,4 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("OK"))
-}
-
-// handleProgramStart marks when a program starts (commercials end).
-func (s *Server) handleProgramStart(w http.ResponseWriter, r *http.Request) {
-	station := r.PathValue("station")
-	if station == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Station name required"})
-		return
-	}
-
-	s.postProcessor.MarkProgram(station, postprocessor.MarkStart)
-	writeJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Marked program start for %s", station)})
-}
-
-// handleProgramStop marks when a program ends (commercials start).
-func (s *Server) handleProgramStop(w http.ResponseWriter, r *http.Request) {
-	station := r.PathValue("station")
-	if station == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Station name required"})
-		return
-	}
-
-	s.postProcessor.MarkProgram(station, postprocessor.MarkEnd)
-	writeJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Marked program end for %s", station)})
 }

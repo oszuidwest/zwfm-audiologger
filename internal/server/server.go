@@ -12,21 +12,19 @@ import (
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
-	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 )
 
 // Server handles HTTP requests for recording control.
 type Server struct {
-	config        *config.Config
-	recorder      *recorder.Manager
-	postProcessor *postprocessor.Manager
-	mux           *http.ServeMux
-	accessLogger  *slog.Logger
+	config       *config.Config
+	recorder     *recorder.Manager
+	mux          *http.ServeMux
+	accessLogger *slog.Logger
 }
 
 // New creates a new HTTP server.
-func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *Server {
+func New(cfg *config.Config, rec *recorder.Manager) *Server {
 	// Create access log file
 	accessLogFile, err := os.OpenFile(constants.DefaultAccessLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.LogFilePermissions)
 	if err != nil {
@@ -36,11 +34,10 @@ func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *
 	}
 
 	s := &Server{
-		config:        cfg,
-		recorder:      rec,
-		postProcessor: pp,
-		mux:           http.NewServeMux(),
-		accessLogger:  slog.New(slog.NewJSONHandler(accessLogFile, nil)),
+		config:       cfg,
+		recorder:     rec,
+		mux:          http.NewServeMux(),
+		accessLogger: slog.New(slog.NewJSONHandler(accessLogFile, nil)),
 	}
 
 	// Setup routes
@@ -51,14 +48,9 @@ func New(cfg *config.Config, rec *recorder.Manager, pp *postprocessor.Manager) *
 
 // setupRoutes configures the HTTP routes.
 func (s *Server) setupRoutes() {
-	// Public endpoints
 	s.mux.HandleFunc("GET /status", s.handleStatus)
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /recordings/{path...}", s.handleRecordings)
-
-	// Protected endpoints with authentication
-	s.mux.HandleFunc("POST /program/start/{station}", s.authenticate(s.handleProgramStart))
-	s.mux.HandleFunc("POST /program/stop/{station}", s.authenticate(s.handleProgramStop))
 }
 
 // Start begins listening for HTTP requests.
@@ -67,8 +59,6 @@ func (s *Server) Start(ctx context.Context) error {
 
 	slog.Info("HTTP server listening", "port", s.config.Port)
 	slog.Info("Endpoints:")
-	slog.Info("  - POST /program/start/:station (requires auth)")
-	slog.Info("  - POST /program/stop/:station (requires auth)")
 	slog.Info("  - GET /recordings/* (browse recordings)")
 	slog.Info("  - GET /status (system status)")
 	slog.Info("  - GET /health (health check)")

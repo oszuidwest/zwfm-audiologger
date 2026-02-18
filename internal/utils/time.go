@@ -54,13 +54,3 @@ func HourlyTimestamp() string {
 func TestTimestamp() string {
 	return Now().Format(TestTimestampFormat)
 }
-
-// ParseHourlyTimestamp parses a timestamp in hourly format and returns it in the configured timezone.
-func ParseHourlyTimestamp(timestamp string) (time.Time, error) {
-	t, err := time.Parse(HourlyTimestampFormat, timestamp)
-	if err != nil {
-		return time.Time{}, err
-	}
-	// Convert to the configured timezone
-	return t.In(AppTimezone), nil
-}

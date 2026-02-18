@@ -14,7 +14,6 @@ import (
 	_ "time/tzdata" // Ensures timezone functionality across all platforms
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
-	"github.com/oszuidwest/zwfm-audiologger/internal/postprocessor"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/scheduler"
 	"github.com/oszuidwest/zwfm-audiologger/internal/server"
@@ -78,13 +77,6 @@ func main() {
 	// Initialize components
 	recorderManager := recorder.New(cfg)
 
-	// Build station buffer offsets map for postprocessor
-	stationOffsets := make(map[string]int)
-	for name, station := range cfg.Stations {
-		stationOffsets[name] = station.BufferOffset
-	}
-	postProcessor := postprocessor.New(cfg.RecordingsDir, stationOffsets)
-
 	// Run test mode if requested
 	if *testMode {
 		recorderManager.Test(ctx)
@@ -94,18 +86,17 @@ func main() {
 	// Start components concurrently using goroutines
 	var wg sync.WaitGroup
 
-	// Start HTTP server for trigger endpoints
-	var httpServer *server.Server
+	// Start HTTP server for status and file browsing
 	wg.Go(func() {
-		httpServer = server.New(cfg, recorderManager, postProcessor)
-		if err := httpServer.Start(ctx); err != nil {
+		srv := server.New(cfg, recorderManager)
+		if err := srv.Start(ctx); err != nil {
 			slog.Error("HTTP server error", "error", err)
 		}
 	})
 
 	// Start scheduler for ALL stations (always record as failsafe)
 	wg.Go(func() {
-		sched := scheduler.New(cfg, recorderManager, postProcessor)
+		sched := scheduler.New(cfg, recorderManager)
 		if err := sched.Start(ctx); err != nil {
 			slog.Error("Scheduler error", "error", err)
 		}
