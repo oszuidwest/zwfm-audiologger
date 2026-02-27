@@ -3,7 +3,6 @@ package recorder
 
 import (
 	"context"
-
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -142,7 +141,7 @@ func (m *Manager) saveMetadata(stationName string, station *config.Station, time
 }
 
 // Test performs a test recording for all stations.
-func (m *Manager) Test(ctx context.Context) {
+func (m *Manager) Test() {
 	slog.Info("Running test recordings (10 seconds each)")
 
 	for name, station := range m.config.Stations {

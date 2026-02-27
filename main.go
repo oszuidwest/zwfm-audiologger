@@ -86,7 +86,7 @@ func main() {
 
 	// Run test mode if requested.
 	if *testMode {
-		recorderManager.Test(ctx)
+		recorderManager.Test()
 		return
 	}
 

@@ -25,16 +25,16 @@ func SetTimezone(timezoneStr string) error {
 	loc, err := time.LoadLocation(timezoneStr)
 	if err != nil {
 		slog.Warn("failed to load timezone, using UTC", "timezone", timezoneStr, "error", err)
-		timezoneMutex.Lock()
-		AppTimezone = time.UTC
-		timezoneMutex.Unlock()
-		return err
+		loc = time.UTC
+	} else {
+		slog.Info("Timezone set", "timezone", timezoneStr)
 	}
+
 	timezoneMutex.Lock()
 	AppTimezone = loc
 	timezoneMutex.Unlock()
-	slog.Info("Timezone set", "timezone", timezoneStr)
-	return nil
+
+	return err
 }
 
 // Now returns the current time in the configured timezone.
