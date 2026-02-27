@@ -144,7 +144,6 @@ func detectLoopsViaAutocorrelation(rmsValues []float64) float64 {
 		return 0
 	}
 
-	// Normalize values.
 	mean := 0.0
 	for _, v := range rmsValues {
 		mean += v
@@ -160,36 +159,25 @@ func detectLoopsViaAutocorrelation(rmsValues []float64) float64 {
 	variance /= float64(n)
 
 	if variance < 0.0001 {
-		// Near-constant signal, treat as potential loop.
 		return 100.0
 	}
 
-	// Calculate autocorrelation for different lag values.
-	// Look for lags between 10 seconds and half the recording.
 	minLag := 10
-	maxLag := n / 2
-	if maxLag > 300 {
-		maxLag = 300 // Cap at 5 minutes to limit computation.
-	}
+	maxLag := min(n/2, 300)
 
-	var highCorrelationCount int
-	var totalChecks int
+	highCorrelationCount := 0
+	totalChecks := maxLag - minLag
 
 	for lag := minLag; lag < maxLag; lag++ {
 		correlation := 0.0
-		count := 0
-		for i := 0; i < n-lag; i++ {
+		count := n - lag
+		for i := 0; i < count; i++ {
 			correlation += normalized[i] * normalized[i+lag]
-			count++
 		}
-		if count > 0 {
-			correlation /= float64(count) * variance
-			totalChecks++
+		correlation /= float64(count) * variance
 
-			// High correlation suggests repeating pattern.
-			if correlation > 0.85 {
-				highCorrelationCount++
-			}
+		if correlation > 0.85 {
+			highCorrelationCount++
 		}
 	}
 
@@ -197,9 +185,6 @@ func detectLoopsViaAutocorrelation(rmsValues []float64) float64 {
 		return 0
 	}
 
-	// Calculate percentage of lags with high correlation.
 	loopPercent := float64(highCorrelationCount) / float64(totalChecks) * 100
-
-	// Round to one decimal place.
 	return math.Round(loopPercent*10) / 10
 }

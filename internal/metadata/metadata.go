@@ -86,7 +86,6 @@ func extractJSONPath(data []byte, path string) string {
 		return strings.TrimSpace(string(data))
 	}
 
-	// Parse as generic map for simple dot notation.
 	var jsonData map[string]any
 	if err := json.Unmarshal(data, &jsonData); err != nil {
 		return ""
@@ -95,21 +94,21 @@ func extractJSONPath(data []byte, path string) string {
 	parts := strings.Split(path, ".")
 	current := jsonData
 
-	// Navigate through the path.
 	for i, part := range parts {
-		if i == len(parts)-1 {
-			// Last part - extract the value.
+		isLastPart := i == len(parts)-1
+
+		if isLastPart {
 			if value, ok := current[part].(string); ok {
 				return strings.TrimSpace(value)
 			}
 			return ""
 		}
-		// Intermediate part - go deeper.
-		if next, ok := current[part].(map[string]any); ok {
-			current = next
-		} else {
+
+		next, ok := current[part].(map[string]any)
+		if !ok {
 			return ""
 		}
+		current = next
 	}
 
 	return ""
