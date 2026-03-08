@@ -22,14 +22,9 @@ type probeFormat struct {
 	} `json:"format"`
 }
 
-// withAnalysisTimeout creates a context with the standard analysis timeout.
-func withAnalysisTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
-}
-
 // analyzeDuration uses ffprobe to get the duration of a recording in seconds.
 func (m *Manager) analyzeDuration(ctx context.Context, file string) (float64, error) {
-	ctx, cancel := withAnalysisTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
 	defer cancel()
 
 	cmd := utils.ProbeCommand(ctx, file)
@@ -57,7 +52,7 @@ var silenceRegex = regexp.MustCompile(`silence_(start|end|duration):\s*([\d.]+)`
 // analyzeSilence detects silence periods in the recording and returns the maximum
 // continuous silence duration in seconds.
 func (m *Manager) analyzeSilence(ctx context.Context, file string) (float64, error) {
-	ctx, cancel := withAnalysisTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
 	defer cancel()
 
 	thresholdDB := int(m.config.Validation.SilenceThresholdDB)
@@ -92,7 +87,7 @@ func (m *Manager) analyzeSilence(ctx context.Context, file string) (float64, err
 // analyzeLoops detects looping/repeating content by analyzing audio energy patterns.
 // It returns the estimated percentage of content that appears to be looped.
 func (m *Manager) analyzeLoops(ctx context.Context, file string) (float64, error) {
-	ctx, cancel := withAnalysisTimeout(ctx)
+	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
 	defer cancel()
 
 	cmd := utils.AudioStatsCommand(ctx, file)
