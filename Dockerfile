@@ -16,8 +16,6 @@ COPY . .
 
 # Build arguments
 ARG VERSION=dev
-ARG COMMIT=unknown
-ARG BUILD_TIME=unknown
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build \
@@ -25,15 +23,17 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o audiologger .
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.23
+
+LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-audiologger"
+LABEL org.opencontainers.image.description="ZuidWest FM audiologger"
 
 # Install runtime dependencies
-RUN apk add --no-cache \
+RUN apk --no-cache upgrade && \
+    apk add --no-cache \
     ffmpeg \
     ca-certificates \
-    tzdata \
-    curl \
-    && rm -rf /var/cache/apk/*
+    tzdata
 
 # Create non-root user
 RUN addgroup -g 1001 audiologger && \
@@ -60,7 +60,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD wget --no-verbose --tries=1 --timeout=3 -O /dev/null http://localhost:8080/health || exit 1
 
 # Default command
 CMD ["./audiologger"]
