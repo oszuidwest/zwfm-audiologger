@@ -23,6 +23,18 @@ type FileInfo struct {
 	URL     string
 }
 
+// extensionContentType returns the content type for a file extension.
+func extensionContentType(ext string) string {
+	switch ext {
+	case ".meta":
+		return "text/plain; charset=utf-8"
+	case ".json":
+		return "application/json"
+	default:
+		return utils.ContentType(ext)
+	}
+}
+
 // handleRecordings serves files and directory listings from the recordings directory.
 func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 	// Extract the filepath from URL path parameter
@@ -47,25 +59,11 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If it's a file, serve it
 	if !info.IsDir() {
-		// Set content type based on file extension
 		ext := filepath.Ext(fsPath)
-		switch ext {
-		case ".meta":
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		case ".json":
-			w.Header().Set("Content-Type", "application/json")
-		default:
-			// Use the format utility for audio files
-			contentType := utils.ContentType(ext)
-			w.Header().Set("Content-Type", contentType)
-		}
-
-		// Set Content-Disposition for download
+		contentType := extensionContentType(ext)
+		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(fsPath)))
-
-		// Serve the file
 		http.ServeFile(w, r, fsPath)
 		return
 	}

@@ -179,12 +179,12 @@ func buildEmailContent(result *ValidationResult) string {
 	if len(result.Issues) > 0 {
 		b.WriteString("<h3>Issues:</h3><ul>")
 		for _, issue := range result.Issues {
-			b.WriteString(fmt.Sprintf("<li>%s</li>", issue))
+			fmt.Fprintf(&b, "<li>%s</li>", issue)
 		}
 		b.WriteString("</ul>")
 	}
 
-	b.WriteString(fmt.Sprintf("<p><small>Validated at: %s</small></p>", result.ValidatedAt.Format(time.RFC3339)))
+	fmt.Fprintf(&b, "<p><small>Validated at: %s</small></p>", result.ValidatedAt.Format(time.RFC3339))
 	b.WriteString("</body></html>")
 
 	return b.String()

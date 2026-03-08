@@ -50,52 +50,55 @@ type Station struct {
 
 // Load reads and parses the configuration from a JSON file and applies sensible defaults for missing values.
 func Load(path string) (*Config, error) {
-	// Open file for streaming JSON decoding
 	file, err := os.Open(path) //nolint:gosec // Config path is provided by the application, not user input
 	if err != nil {
 		return nil, fmt.Errorf("failed to open config file %q: %w", path, err)
 	}
 	defer func() { _ = file.Close() }()
 
-	var config Config
+	var cfg Config
 
-	// Parse JSON configuration from file
 	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields() // Strict validation - fail on unexpected fields
+	decoder.DisallowUnknownFields()
 
-	if err := decoder.Decode(&config); err != nil {
+	if err := decoder.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Set defaults for missing values
-	if config.RecordingsDir == "" {
-		config.RecordingsDir = constants.DefaultRecordingsDir
+	cfg.applyDefaults()
+	return &cfg, nil
+}
+
+func (c *Config) applyDefaults() {
+	if c.RecordingsDir == "" {
+		c.RecordingsDir = constants.DefaultRecordingsDir
 	}
-	if config.KeepDays == 0 {
-		config.KeepDays = constants.DefaultKeepDays
+	if c.KeepDays == 0 {
+		c.KeepDays = constants.DefaultKeepDays
 	}
-	if config.Port == 0 {
-		config.Port = constants.DefaultPort
+	if c.Port == 0 {
+		c.Port = constants.DefaultPort
 	}
-	if config.Timezone == "" {
-		config.Timezone = constants.DefaultTimezone
+	if c.Timezone == "" {
+		c.Timezone = constants.DefaultTimezone
 	}
 
-	// Apply defaults for validation config if enabled.
-	if config.Validation != nil && config.Validation.Enabled {
-		if config.Validation.MinDurationSecs == 0 {
-			config.Validation.MinDurationSecs = constants.DefaultMinDurationSecs
-		}
-		if config.Validation.SilenceThresholdDB == 0 {
-			config.Validation.SilenceThresholdDB = constants.DefaultSilenceThresholdDB
-		}
-		if config.Validation.MaxSilenceSecs == 0 {
-			config.Validation.MaxSilenceSecs = constants.DefaultMaxSilenceSecs
-		}
-		if config.Validation.MaxLoopPercent == 0 {
-			config.Validation.MaxLoopPercent = constants.DefaultMaxLoopPercent
-		}
+	if c.Validation != nil && c.Validation.Enabled {
+		c.Validation.applyDefaults()
 	}
+}
 
-	return &config, nil
+func (v *ValidationConfig) applyDefaults() {
+	if v.MinDurationSecs == 0 {
+		v.MinDurationSecs = constants.DefaultMinDurationSecs
+	}
+	if v.SilenceThresholdDB == 0 {
+		v.SilenceThresholdDB = constants.DefaultSilenceThresholdDB
+	}
+	if v.MaxSilenceSecs == 0 {
+		v.MaxSilenceSecs = constants.DefaultMaxSilenceSecs
+	}
+	if v.MaxLoopPercent == 0 {
+		v.MaxLoopPercent = constants.DefaultMaxLoopPercent
+	}
 }

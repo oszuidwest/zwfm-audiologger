@@ -72,18 +72,27 @@ func (s *Server) Start(ctx context.Context) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Handle graceful shutdown
+	// Run ListenAndServe in a goroutine so we can select on context cancellation.
+	errCh := make(chan error, 1)
 	go func() {
-		<-ctx.Done()
-		slog.Info("Shutting down HTTP server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			slog.Error("http server shutdown error", "error", err)
-		}
+		errCh <- server.ListenAndServe()
 	}()
 
-	return server.ListenAndServe()
+	// Wait for context cancellation or server error.
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+	}
+
+	// Gracefully shut down with a timeout.
+	slog.Info("Shutting down HTTP server")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		slog.Error("http server shutdown error", "error", err)
+	}
+	return ctx.Err()
 }
 
 // loggingMiddleware logs HTTP requests.
