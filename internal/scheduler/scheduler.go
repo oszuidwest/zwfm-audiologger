@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
+	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	cron "github.com/pardnchiu/go-cron"
@@ -56,6 +58,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	slog.Info("Scheduled daily cleanup", "time", "midnight", "timezone", utils.AppTimezone)
 
+	// If we started mid-hour, immediately record the remaining portion so no
+	// broadcast is lost between startup and the first cron trigger at minute 0.
+	s.startCatchupRecordings()
+
 	// Start the scheduler
 	scheduler.Start()
 	slog.Info("Scheduler started. Press Ctrl+C to stop")
@@ -68,6 +74,51 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	slog.Info("Scheduler stopped")
 
 	return nil
+}
+
+// startCatchupRecordings immediately records the remainder of the current hour
+// if the service started mid-hour. This closes the gap that would otherwise
+// exist between startup and the first cron trigger at minute 0.
+func (s *Scheduler) startCatchupRecordings() {
+	now := utils.Now()
+	elapsedSecs := now.Minute()*60 + now.Second()
+
+	// Skip if we're at (or very near) the start of an hour; the cron handles it.
+	if elapsedSecs < constants.CatchupGraceSecs {
+		return
+	}
+
+	remainingSecs := 3600 - elapsedSecs
+
+	// Build the timestamp for the start of the current hour in the configured timezone.
+	hourStart := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location())
+	timestamp := hourStart.Format(utils.HourlyTimestampFormat)
+
+	slog.Info("Starting catchup recordings for partial hour",
+		"timestamp", timestamp,
+		"elapsed_secs", elapsedSecs,
+		"remaining_secs", remainingSecs)
+
+	for name, station := range s.config.Stations {
+		go func(stationName string, stationCfg *config.Station) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("panic in catchup recording", "station", stationName, "panic", r)
+				}
+			}()
+
+			// Skip if a recording for this hour already exists (e.g. previous run captured it).
+			dir := filepath.Join(s.config.RecordingsDir, stationName)
+			matches, _ := filepath.Glob(filepath.Join(dir, timestamp+".*"))
+			if len(matches) > 0 {
+				slog.Info("Catchup skipped, recording already exists",
+					"station", stationName, "timestamp", timestamp)
+				return
+			}
+
+			s.recorder.Catchup(stationName, stationCfg, timestamp, remainingSecs)
+		}(name, &station)
+	}
 }
 
 // runAllRecordings records all configured stations.
@@ -108,12 +159,18 @@ func (s *Scheduler) cleanupOldRecordings() {
 		}
 
 		for _, file := range files {
-			if info, err := file.Info(); err == nil {
-				if info.ModTime().Before(cutoff) {
-					path := filepath.Join(dir, file.Name())
-					if err := os.Remove(path); err == nil {
-						slog.Info("Deleted old recording", "path", path)
-					}
+			info, err := file.Info()
+			if err != nil {
+				slog.Warn("failed to stat file during cleanup", "file", file.Name(), "error", err)
+				continue
+			}
+
+			if info.ModTime().Before(cutoff) {
+				path := filepath.Join(dir, file.Name())
+				if err := os.Remove(path); err != nil {
+					slog.Error("failed to delete old recording", "path", path, "error", err)
+				} else {
+					slog.Info("Deleted old recording", "path", path)
 				}
 			}
 		}

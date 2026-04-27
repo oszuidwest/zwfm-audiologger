@@ -75,6 +75,17 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
+// NotifyRecordingFailure sends an alert when a recording fails to be created.
+// This is called by the recorder when FFmpeg or remux fails.
+func (m *Manager) NotifyRecordingFailure(station, reason string) {
+	if m.alerter == nil {
+		return
+	}
+	if err := m.alerter.SendRecordingFailure(context.Background(), station, reason); err != nil {
+		slog.Error("failed to send recording failure alert", "station", station, "error", err)
+	}
+}
+
 // Enqueue adds a file to the validation queue (non-blocking).
 func (m *Manager) Enqueue(filePath, station, timestamp string) {
 	job := ValidationJob{

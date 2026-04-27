@@ -108,6 +108,47 @@ func (a *Alerter) Send(ctx context.Context, result *ValidationResult) error {
 	return a.sendWithRetry(ctx, message)
 }
 
+// SendRecordingFailure sends an alert email when a recording fails to be created.
+func (a *Alerter) SendRecordingFailure(ctx context.Context, station, reason string) error {
+	recipients := a.getRecipients(station)
+	if len(recipients) == 0 {
+		slog.Warn("no alert recipients configured", "station", station)
+		return nil
+	}
+
+	subject := fmt.Sprintf("%s Recording failed: %s", emailSubjectPrefix, station)
+	content := buildRecordingFailureContent(station, reason)
+
+	message := &graphMailRequest{
+		Message: graphMessage{
+			Subject: subject,
+			Body: graphBody{
+				ContentType: emailContentType,
+				Content:     content,
+			},
+			ToRecipients: buildRecipientList(recipients),
+		},
+	}
+
+	return a.sendWithRetry(ctx, message)
+}
+
+// buildRecordingFailureContent constructs an HTML email body for a recording failure.
+func buildRecordingFailureContent(station, reason string) string {
+	var b strings.Builder
+
+	b.WriteString("<html><body>")
+	b.WriteString("<h2>Recording Failed</h2>")
+	b.WriteString("<table style='border-collapse: collapse;'>")
+	writeTableRow(&b, "Station", station)
+	writeTableRow(&b, "Time", time.Now().Format(time.RFC3339))
+	writeTableRow(&b, "Reason", reason)
+	b.WriteString("</table>")
+	b.WriteString("</body></html>")
+
+	return b.String()
+}
+
 // getRecipients returns the email recipients for a station.
 func (a *Alerter) getRecipients(station string) []string {
 	// Check station-specific recipients first.

@@ -3,9 +3,11 @@ package recorder
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,19 +22,26 @@ type Validator interface {
 	Enqueue(filePath, station, timestamp string)
 }
 
+// Notifier defines the interface for recording failure notifications.
+type Notifier interface {
+	NotifyRecordingFailure(station, reason string)
+}
+
 // Manager handles recording operations.
 type Manager struct {
 	config          *config.Config
 	metadataFetcher *metadata.Fetcher
 	validator       Validator
+	notifier        Notifier
 }
 
 // New creates a new recording manager.
-func New(cfg *config.Config, validator Validator) *Manager {
+func New(cfg *config.Config, validator Validator, notifier Notifier) *Manager {
 	return &Manager{
 		config:          cfg,
 		metadataFetcher: metadata.New(),
 		validator:       validator,
+		notifier:        notifier,
 	}
 }
 
@@ -48,11 +57,35 @@ func (m *Manager) Scheduled(name string, station *config.Station) {
 	m.record(name, station, timestamp, constants.HourlyRecordingDuration, constants.HourlyRecordingTimeout)
 }
 
+// Catchup performs a recording for the remainder of the current hour after a mid-hour startup.
+func (m *Manager) Catchup(name string, station *config.Station, timestamp string, durationSecs int) {
+	duration := strconv.Itoa(durationSecs)
+	timeout := time.Duration(durationSecs+300) * time.Second // 5-minute buffer beyond duration
+
+	if station.MetadataURL != "" {
+		go m.saveMetadata(name, station, timestamp)
+	}
+
+	m.record(name, station, timestamp, duration, timeout)
+}
+
 // record performs the actual recording operation.
 func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration) {
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
 		slog.Error("failed to create directory", "station", name, "error", err, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
+		return
+	}
+
+	// Refuse to record if available disk space is below the minimum threshold.
+	if available, err := utils.AvailableDiskBytes(dir); err != nil {
+		slog.Warn("failed to check disk space, proceeding anyway", "station", name, "error", err)
+	} else if available < constants.MinDiskSpaceBytes {
+		reason := fmt.Sprintf("insufficient disk space: %d bytes available, %d required", available, constants.MinDiskSpaceBytes)
+		slog.Error("skipping recording", "station", name, "reason", reason)
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, reason)
+		}
 		return
 	}
 
@@ -80,6 +113,10 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 		}
 		slog.Error("failed recording", "station", name, "error", err, "ffmpeg_command", strings.Join(cmd.Args[1:], " "), "stream_url", station.StreamURL, "output_file", tempFile, "ffmpeg_output", outputStr)
 
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("FFmpeg failed: %v", err))
+		}
+
 		// Clean up temp file if it was created
 		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
 			slog.Warn("failed to clean up temp file after error", "file", tempFile, "error", err)
@@ -101,6 +138,10 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 			outputStr = outputStr[:500] + "... (truncated)"
 		}
 		slog.Error("failed to remux recording", "station", name, "temp_file", tempFile, "final_file", finalFile, "error", err, "remux_output", outputStr)
+
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("remux failed: %v", err))
+		}
 
 		// Clean up temp file when remux fails
 		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
