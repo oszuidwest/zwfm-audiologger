@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	cron "github.com/netresearch/go-cron"
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
-	cron "github.com/pardnchiu/go-cron"
 )
 
 // Scheduler manages scheduled recordings and cleanup tasks.
@@ -32,24 +32,19 @@ func New(cfg *config.Config, rec *recorder.Manager) *Scheduler {
 	}
 }
 
-// Start begins the scheduling using pardnchiu/go-cron.
+// Start begins the scheduling using netresearch/go-cron.
 func (s *Scheduler) Start(ctx context.Context) error {
 	// Create scheduler using the global timezone (already set in main)
-	scheduler, err := cron.New(cron.Config{
-		Location: utils.AppTimezone,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create scheduler: %w", err)
-	}
+	scheduler := cron.New(cron.WithLocation(utils.AppTimezone))
 
 	// Schedule hourly recordings at minute 0 of every hour
-	_, err = scheduler.Add("0 * * * *", s.runAllRecordings, "Hourly recordings")
+	_, err := scheduler.AddFunc("0 * * * *", s.runAllRecordings, cron.WithName("Hourly recordings"))
 	if err != nil {
 		return fmt.Errorf("failed to schedule hourly recordings: %w", err)
 	}
 
 	// Schedule daily cleanup at midnight
-	_, err = scheduler.Add("0 0 * * *", s.runCleanup, "Daily cleanup")
+	_, err = scheduler.AddFunc("0 0 * * *", s.runCleanup, cron.WithName("Daily cleanup"))
 	if err != nil {
 		return fmt.Errorf("failed to schedule daily cleanup: %w", err)
 	}
