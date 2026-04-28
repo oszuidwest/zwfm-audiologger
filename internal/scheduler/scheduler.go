@@ -32,7 +32,7 @@ func New(cfg *config.Config, rec *recorder.Manager) *Scheduler {
 	}
 }
 
-// Start begins the scheduling using pardnchiu/go-cron.
+// Start begins the scheduling using netresearch/go-cron.
 func (s *Scheduler) Start(ctx context.Context) error {
 	// Create scheduler using the global timezone (already set in main)
 	scheduler := cron.New(cron.WithLocation(utils.AppTimezone))
