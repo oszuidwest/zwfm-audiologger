@@ -7,7 +7,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -123,11 +124,14 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fs
 	}
 
 	// Sort files (directories first, then by name)
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].IsDir != files[j].IsDir {
-			return files[i].IsDir
+	slices.SortFunc(files, func(a, b FileInfo) int {
+		if a.IsDir != b.IsDir {
+			if a.IsDir {
+				return -1
+			}
+			return 1
 		}
-		return files[i].Name < files[j].Name
+		return strings.Compare(a.Name, b.Name)
 	})
 
 	// Render directory listing using template

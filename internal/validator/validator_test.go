@@ -20,7 +20,7 @@ func TestMarkSkipped(t *testing.T) {
 	}
 
 	m := validator.New(&config.Config{RecordingsDir: dir})
-	defer m.Stop()
+	t.Cleanup(m.Stop)
 
 	const station = "teststation"
 	const timestamp = "2026-04-28-12"

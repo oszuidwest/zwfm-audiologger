@@ -68,7 +68,6 @@ func TestExistingAudioFile(t *testing.T) {
 
 	// Side-car files must not be mistaken for audio files.
 	for _, sidecar := range []string{ts + ".meta", ts + constants.ValidationFileSuffix} {
-		sidecar := sidecar
 		t.Run("sidecar only: "+sidecar, func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.WriteFile(filepath.Join(dir, sidecar), nil, 0o600); err != nil {
@@ -86,7 +85,6 @@ func TestExistingAudioFile(t *testing.T) {
 
 	// Every supported audio extension must be recognised.
 	for _, ext := range []string{".mp3", ".aac", ".ogg", ".opus", ".flac", ".m4a", ".wav"} {
-		ext := ext
 		t.Run("audio file: "+ext, func(t *testing.T) {
 			dir := t.TempDir()
 			want := ts + ext

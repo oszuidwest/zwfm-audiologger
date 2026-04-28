@@ -166,7 +166,7 @@ func detectLoopsViaAutocorrelation(rmsValues []float64) float64 {
 	for lag := minLag; lag < maxLag; lag++ {
 		correlation := 0.0
 		count := n - lag
-		for i := 0; i < count; i++ {
+		for i := range count {
 			correlation += normalized[i] * normalized[i+lag]
 		}
 		correlation /= float64(count) * variance
