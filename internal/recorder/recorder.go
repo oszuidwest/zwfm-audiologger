@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -132,7 +133,7 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 		slog.Error("failed recording", "station", name, "error", err, "ffmpeg_command", strings.Join(cmd.Args[1:], " "), "stream_url", station.StreamURL, "output_file", tempFile, "ffmpeg_output", outputStr)
 
 		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("FFmpeg failed: %v", err))
+			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
 		}
 
 		// Clean up temp file if it was created
@@ -188,6 +189,12 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 
 // saveMetadata fetches and saves metadata for a recording.
 func (m *Manager) saveMetadata(stationName string, station *config.Station, timestamp string) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in saveMetadata", "station", stationName, "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
 	meta := m.metadataFetcher.Fetch(
 		station.MetadataURL,
 		station.MetadataPath,

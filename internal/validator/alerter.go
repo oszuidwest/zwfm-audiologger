@@ -92,7 +92,7 @@ func validateGUIDField(value, fieldName string) error {
 		return fmt.Errorf("%s is required", fieldName)
 	}
 	if !guidPattern.MatchString(value) {
-		return fmt.Errorf("%s must be a valid GUID", fieldName)
+		return fmt.Errorf("%s must be a valid guid", fieldName)
 	}
 	return nil
 }
@@ -316,7 +316,7 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 			continue
 		default:
 			// Non-retryable error.
-			return fmt.Errorf("graph API error %d: %s", resp.StatusCode, respText)
+			return fmt.Errorf("graph api error %d: %s", resp.StatusCode, respText)
 		}
 	}
 

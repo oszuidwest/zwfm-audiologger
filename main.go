@@ -58,9 +58,7 @@ func main() {
 	}
 
 	// Set the timezone from config
-	if err := utils.SetTimezone(cfg.Timezone); err != nil {
-		slog.Warn("failed to set timezone", "error", err)
-	}
+	utils.SetTimezone(cfg.Timezone)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

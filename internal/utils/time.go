@@ -21,7 +21,8 @@ var (
 )
 
 // SetTimezone sets the application timezone from a timezone string.
-func SetTimezone(timezoneStr string) error {
+// Falls back to UTC and logs a warning if the timezone string is invalid.
+func SetTimezone(timezoneStr string) {
 	loc, err := time.LoadLocation(timezoneStr)
 	if err != nil {
 		slog.Warn("failed to load timezone, using UTC", "timezone", timezoneStr, "error", err)
@@ -33,8 +34,6 @@ func SetTimezone(timezoneStr string) error {
 	timezoneMutex.Lock()
 	AppTimezone = loc
 	timezoneMutex.Unlock()
-
-	return err
 }
 
 // Now returns the current time in the configured timezone.
