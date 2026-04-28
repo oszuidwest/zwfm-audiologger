@@ -184,6 +184,9 @@ func (s *Scheduler) cleanupOldRecordings() {
 		dir := filepath.Join(s.config.RecordingsDir, station)
 		files, err := os.ReadDir(dir)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue // station has no recordings yet
+			}
 			slog.Error("failed to read directory", "dir", dir, "error", err)
 			continue
 		}

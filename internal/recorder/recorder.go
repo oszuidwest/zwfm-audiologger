@@ -19,6 +19,7 @@ import (
 
 // Validator defines the interface for recording validation.
 type Validator interface {
+	// Enqueue adds a completed recording to the validation queue.
 	Enqueue(filePath, station, timestamp string)
 	// MarkSkipped writes a validation sidecar that marks a recording as valid
 	// without running validation checks. Used for catchup recordings so that
@@ -79,7 +80,11 @@ func (m *Manager) Catchup(name string, station *config.Station, timestamp string
 func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration, skipValidation bool) {
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
-		slog.Error("failed to create directory", "station", name, "error", err, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
+		reason := fmt.Sprintf("failed to create recording directory: %v", err)
+		slog.Error("skipping recording", "station", name, "reason", reason, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, reason)
+		}
 		return
 	}
 

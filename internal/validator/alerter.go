@@ -17,7 +17,6 @@ import (
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
-	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -111,7 +110,7 @@ func (a *Alerter) Send(ctx context.Context, result *ValidationResult) error {
 }
 
 // SendRecordingFailure sends an alert email when a recording fails to be created.
-func (a *Alerter) SendRecordingFailure(ctx context.Context, station, reason string) error {
+func (a *Alerter) SendRecordingFailure(ctx context.Context, station, reason string, failedAt time.Time) error {
 	recipients := a.getRecipients(station)
 	if len(recipients) == 0 {
 		slog.Warn("no alert recipients configured", "station", station)
@@ -119,7 +118,7 @@ func (a *Alerter) SendRecordingFailure(ctx context.Context, station, reason stri
 	}
 
 	subject := fmt.Sprintf("%s Recording failed: %s", emailSubjectPrefix, station)
-	content := buildRecordingFailureContent(station, reason)
+	content := buildRecordingFailureContent(station, reason, failedAt)
 
 	message := &graphMailRequest{
 		Message: graphMessage{
@@ -136,14 +135,14 @@ func (a *Alerter) SendRecordingFailure(ctx context.Context, station, reason stri
 }
 
 // buildRecordingFailureContent constructs an HTML email body for a recording failure.
-func buildRecordingFailureContent(station, reason string) string {
+func buildRecordingFailureContent(station, reason string, failedAt time.Time) string {
 	var b strings.Builder
 
 	b.WriteString("<html><body>")
 	b.WriteString("<h2>Recording Failed</h2>")
 	b.WriteString("<table style='border-collapse: collapse;'>")
 	writeTableRow(&b, "Station", station)
-	writeTableRow(&b, "Time", utils.Now().Format(time.RFC3339))
+	writeTableRow(&b, "Failed at", failedAt.Format(time.RFC3339))
 	writeTableRow(&b, "Reason", reason)
 	b.WriteString("</table>")
 	b.WriteString("</body></html>")
@@ -233,9 +232,9 @@ func buildEmailContent(result *ValidationResult) string {
 	return b.String()
 }
 
-// writeTableRow writes an HTML table row to the builder, escaping the value.
+// writeTableRow writes an HTML table row to the builder, escaping the label and value.
 func writeTableRow(b *strings.Builder, label, value string) {
-	fmt.Fprintf(b, "<tr><td><strong>%s:</strong></td><td>%s</td></tr>", label, html.EscapeString(value))
+	fmt.Fprintf(b, "<tr><td><strong>%s:</strong></td><td>%s</td></tr>", html.EscapeString(label), html.EscapeString(value))
 }
 
 // buildRecipientList converts email addresses to Graph API recipient format.
@@ -290,8 +289,12 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 			continue
 		}
 
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
+		respText := string(respBody)
+		if readErr != nil {
+			respText = fmt.Sprintf("failed to read response body: %v", readErr)
+		}
 
 		switch resp.StatusCode {
 		case http.StatusAccepted, http.StatusOK, http.StatusNoContent:
@@ -304,16 +307,16 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 					retryWait = time.Duration(seconds) * time.Second
 				}
 			}
-			lastErr = fmt.Errorf("rate limited (429): %s", string(respBody))
+			lastErr = fmt.Errorf("rate limited (429): %s", respText)
 			continue
 		case http.StatusInternalServerError, http.StatusBadGateway,
 			http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 			// Transient server errors - retry.
-			lastErr = fmt.Errorf("server error %d: %s", resp.StatusCode, string(respBody))
+			lastErr = fmt.Errorf("server error %d: %s", resp.StatusCode, respText)
 			continue
 		default:
 			// Non-retryable error.
-			return fmt.Errorf("graph API error %d: %s", resp.StatusCode, string(respBody))
+			return fmt.Errorf("graph API error %d: %s", resp.StatusCode, respText)
 		}
 	}
 
