@@ -114,8 +114,9 @@ func (s *Scheduler) startCatchupRecordings() {
 			dir := filepath.Join(s.config.RecordingsDir, stationName)
 			entries, err := os.ReadDir(dir)
 			if err != nil && !os.IsNotExist(err) {
-				slog.Warn("failed to check for existing recording, proceeding with catchup",
+				slog.Error("failed to check for existing recordings, skipping catchup",
 					"station", stationName, "dir", dir, "error", err)
+				return
 			}
 			for _, e := range entries {
 				if !e.IsDir() && strings.HasPrefix(e.Name(), timestamp+".") && utils.IsAudioFile(e.Name()) {

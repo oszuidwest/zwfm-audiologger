@@ -88,6 +88,22 @@ func (m *Manager) NotifyRecordingFailure(station, reason string) {
 	}
 }
 
+// MarkSkipped writes a validation sidecar that marks a recording as valid without
+// running validation checks. This prevents scanUnvalidated from re-queuing the
+// file on the next startup after a catchup recording.
+func (m *Manager) MarkSkipped(filePath, station, timestamp string) {
+	result := &ValidationResult{
+		Station:     station,
+		Timestamp:   timestamp,
+		ValidatedAt: utils.Now(),
+		Valid:        true,
+	}
+	validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)
+	if err := result.Save(validationFile); err != nil {
+		slog.Error("failed to write catchup validation sidecar", "file", validationFile, "error", err)
+	}
+}
+
 // Enqueue adds a file to the validation queue (non-blocking).
 func (m *Manager) Enqueue(filePath, station, timestamp string) {
 	job := ValidationJob{

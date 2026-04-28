@@ -20,6 +20,10 @@ import (
 // Validator defines the interface for recording validation.
 type Validator interface {
 	Enqueue(filePath, station, timestamp string)
+	// MarkSkipped writes a validation sidecar that marks a recording as valid
+	// without running validation checks. Used for catchup recordings so that
+	// scanUnvalidated does not re-queue them on the next startup.
+	MarkSkipped(filePath, station, timestamp string)
 }
 
 // Notifier defines the interface for recording failure notifications.
@@ -166,9 +170,14 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 
 	slog.Info("Recording completed", "file", finalFile, "format", format)
 
-	// Queue recording for validation if validator is configured and this is a full recording.
-	if m.validator != nil && !skipValidation {
-		m.validator.Enqueue(finalFile, name, timestamp)
+	// For full recordings, enqueue for validation. For catchup recordings, write a
+	// sidecar immediately so scanUnvalidated does not re-queue the file on restart.
+	if m.validator != nil {
+		if skipValidation {
+			m.validator.MarkSkipped(finalFile, name, timestamp)
+		} else {
+			m.validator.Enqueue(finalFile, name, timestamp)
+		}
 	}
 }
 
