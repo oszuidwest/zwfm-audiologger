@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -83,12 +84,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 func (s *Scheduler) startCatchupRecordings() {
 	now := utils.Now()
 	elapsedSecs := now.Minute()*60 + now.Second()
-
-	// Skip if we're at (or very near) the start of an hour; the cron handles it.
-	if elapsedSecs < constants.CatchupGraceSecs {
-		return
-	}
-
 	remainingSecs := 3600 - elapsedSecs
 
 	// Skip if too little of the hour remains; a tiny recording is not worth the overhead.
@@ -113,13 +108,21 @@ func (s *Scheduler) startCatchupRecordings() {
 				}
 			}()
 
-			// Skip if a recording for this hour already exists (e.g. previous run captured it).
+			// Skip if an audio file for this hour already exists (e.g. previous run captured it).
+			// Use ReadDir + IsAudioFile rather than a glob so that side-car files
+			// (.meta, .validation.json) do not falsely suppress the catchup.
 			dir := filepath.Join(s.config.RecordingsDir, stationName)
-			matches, _ := filepath.Glob(filepath.Join(dir, timestamp+".*"))
-			if len(matches) > 0 {
-				slog.Info("Catchup skipped, recording already exists",
-					"station", stationName, "timestamp", timestamp)
-				return
+			entries, err := os.ReadDir(dir)
+			if err != nil && !os.IsNotExist(err) {
+				slog.Warn("failed to check for existing recording, proceeding with catchup",
+					"station", stationName, "dir", dir, "error", err)
+			}
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasPrefix(e.Name(), timestamp+".") && utils.IsAudioFile(e.Name()) {
+					slog.Info("Catchup skipped, recording already exists",
+						"station", stationName, "timestamp", timestamp)
+					return
+				}
 			}
 
 			s.recorder.Catchup(stationName, stationCfg, timestamp, remainingSecs)

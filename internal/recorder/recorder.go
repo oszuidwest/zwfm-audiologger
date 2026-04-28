@@ -54,7 +54,7 @@ func (m *Manager) Scheduled(name string, station *config.Station) {
 		go m.saveMetadata(name, station, timestamp)
 	}
 
-	m.record(name, station, timestamp, constants.HourlyRecordingDuration, constants.HourlyRecordingTimeout)
+	m.record(name, station, timestamp, constants.HourlyRecordingDuration, constants.HourlyRecordingTimeout, false)
 }
 
 // Catchup performs a recording for the remainder of the current hour after a mid-hour startup.
@@ -66,11 +66,13 @@ func (m *Manager) Catchup(name string, station *config.Station, timestamp string
 		go m.saveMetadata(name, station, timestamp)
 	}
 
-	m.record(name, station, timestamp, duration, timeout)
+	// Skip validation: catchup recordings are partial by definition and would
+	// always fail the MinDurationSecs check.
+	m.record(name, station, timestamp, duration, timeout, true)
 }
 
 // record performs the actual recording operation.
-func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration) {
+func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration, skipValidation bool) {
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
 		slog.Error("failed to create directory", "station", name, "error", err, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
@@ -164,8 +166,8 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 
 	slog.Info("Recording completed", "file", finalFile, "format", format)
 
-	// Queue recording for validation if validator is configured.
-	if m.validator != nil {
+	// Queue recording for validation if validator is configured and this is a full recording.
+	if m.validator != nil && !skipValidation {
 		m.validator.Enqueue(finalFile, name, timestamp)
 	}
 }
@@ -194,7 +196,7 @@ func (m *Manager) Test() {
 
 	for name, station := range m.config.Stations {
 		timestamp := "test-" + utils.TestTimestamp()
-		m.record(name, &station, timestamp, constants.TestRecordingDuration, constants.TestRecordingTimeout)
+		m.record(name, &station, timestamp, constants.TestRecordingDuration, constants.TestRecordingTimeout, false)
 	}
 
 	slog.Info("Test recordings completed")

@@ -60,10 +60,6 @@ const (
 	// MinDiskSpaceBytes is the minimum free disk space required before starting a recording.
 	MinDiskSpaceBytes = uint64(1 * 1024 * 1024 * 1024) // 1 GB
 
-	// CatchupGraceSecs is the number of seconds into an hour below which we skip catchup
-	// and let the normal cron job handle the recording.
-	CatchupGraceSecs = 5
-
 	// CatchupMinRemainingSecs is the minimum seconds remaining in an hour to bother
 	// starting a catchup recording. Below this threshold the overhead is not worth it.
 	CatchupMinRemainingSecs = 60

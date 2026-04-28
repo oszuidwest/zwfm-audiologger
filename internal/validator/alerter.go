@@ -222,7 +222,7 @@ func buildEmailContent(result *ValidationResult) string {
 	if len(result.Issues) > 0 {
 		b.WriteString("<h3>Issues:</h3><ul>")
 		for _, issue := range result.Issues {
-			fmt.Fprintf(&b, "<li>%s</li>", issue)
+			fmt.Fprintf(&b, "<li>%s</li>", html.EscapeString(issue))
 		}
 		b.WriteString("</ul>")
 	}
