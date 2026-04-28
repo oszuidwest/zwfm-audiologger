@@ -96,7 +96,7 @@ func (m *Manager) MarkSkipped(filePath, station, timestamp string) {
 		Station:     station,
 		Timestamp:   timestamp,
 		ValidatedAt: utils.Now(),
-		Valid:        true,
+		Valid:       true,
 		Skipped:     true,
 	}
 	validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)

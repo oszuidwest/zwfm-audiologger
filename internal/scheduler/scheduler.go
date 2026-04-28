@@ -78,16 +78,41 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	return nil
 }
 
+// catchupRemaining returns the number of seconds remaining in the current hour
+// and whether that is enough to warrant starting a catchup recording.
+func catchupRemaining(now time.Time) (remainingSecs int, needed bool) {
+	elapsed := now.Minute()*60 + now.Second()
+	remaining := 3600 - elapsed
+	return remaining, remaining >= constants.CatchupMinRemainingSecs
+}
+
+// existingAudioFile returns the filename of the first audio file in dir whose
+// name starts with timestamp+".". Returns an empty string if none is found.
+// Returns an error if the directory cannot be read, except when it does not
+// exist yet (in which case an empty string and nil error are returned).
+func existingAudioFile(dir, timestamp string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), timestamp+".") && utils.IsAudioFile(e.Name()) {
+			return e.Name(), nil
+		}
+	}
+	return "", nil
+}
+
 // startCatchupRecordings immediately records the remainder of the current hour
 // if the service started mid-hour. This closes the gap that would otherwise
 // exist between startup and the first cron trigger at minute 0.
 func (s *Scheduler) startCatchupRecordings() {
 	now := utils.Now()
-	elapsedSecs := now.Minute()*60 + now.Second()
-	remainingSecs := 3600 - elapsedSecs
-
-	// Skip if too little of the hour remains; a tiny recording is not worth the overhead.
-	if remainingSecs < constants.CatchupMinRemainingSecs {
+	remainingSecs, needed := catchupRemaining(now)
+	if !needed {
 		return
 	}
 
@@ -97,7 +122,7 @@ func (s *Scheduler) startCatchupRecordings() {
 
 	slog.Info("Starting catchup recordings for partial hour",
 		"timestamp", timestamp,
-		"elapsed_secs", elapsedSecs,
+		"elapsed_secs", 3600-remainingSecs,
 		"remaining_secs", remainingSecs)
 
 	for name, station := range s.config.Stations {
@@ -108,22 +133,17 @@ func (s *Scheduler) startCatchupRecordings() {
 				}
 			}()
 
-			// Skip if an audio file for this hour already exists (e.g. previous run captured it).
-			// Use ReadDir + IsAudioFile rather than a glob so that side-car files
-			// (.meta, .validation.json) do not falsely suppress the catchup.
 			dir := filepath.Join(s.config.RecordingsDir, stationName)
-			entries, err := os.ReadDir(dir)
-			if err != nil && !os.IsNotExist(err) {
+			existing, err := existingAudioFile(dir, timestamp)
+			if err != nil {
 				slog.Error("failed to check for existing recordings, skipping catchup",
 					"station", stationName, "dir", dir, "error", err)
 				return
 			}
-			for _, e := range entries {
-				if !e.IsDir() && strings.HasPrefix(e.Name(), timestamp+".") && utils.IsAudioFile(e.Name()) {
-					slog.Info("Catchup skipped, recording already exists",
-						"station", stationName, "timestamp", timestamp)
-					return
-				}
+			if existing != "" {
+				slog.Info("Catchup skipped, recording already exists",
+					"station", stationName, "file", existing)
+				return
 			}
 
 			s.recorder.Catchup(stationName, stationCfg, timestamp, remainingSecs)
