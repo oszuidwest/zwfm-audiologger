@@ -111,8 +111,11 @@ func (m *Manager) MarkSkipped(filePath, station, timestamp string) {
 	}
 	validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)
 	if err := result.Save(validationFile); err != nil {
-		slog.Error("failed to write catchup validation sidecar; file may be re-queued for validation on next startup and may trigger a false short-duration failure alert",
-			"file", validationFile, "error", err)
+		slog.Error("failed to write catchup validation sidecar",
+			"detail", "file may be re-queued for validation on restart and may trigger a false short-duration alert",
+			"file", validationFile,
+			"error", err,
+		)
 	}
 }
 
@@ -214,7 +217,9 @@ func (m *Manager) processJob(job ValidationJob) {
 			result.SilencePercent = (maxSilence / result.DurationSecs) * 100
 		}
 		if maxSilence > m.config.Validation.MaxSilenceSecs {
-			m.recordIssue(result, fmt.Sprintf("silence detected: %.1fs continuous (max: %.1fs)", maxSilence, m.config.Validation.MaxSilenceSecs))
+			m.recordIssue(result, fmt.Sprintf(
+				"silence detected: %.1fs continuous (max: %.1fs)", maxSilence, m.config.Validation.MaxSilenceSecs,
+			))
 		}
 	}
 
@@ -225,7 +230,9 @@ func (m *Manager) processJob(job ValidationJob) {
 	} else {
 		result.LoopPercent = loopPercent
 		if loopPercent > m.config.Validation.MaxLoopPercent {
-			m.recordIssue(result, fmt.Sprintf("loop detected: %.1f%% (max: %.1f%%)", loopPercent, m.config.Validation.MaxLoopPercent))
+			m.recordIssue(result, fmt.Sprintf(
+				"loop detected: %.1f%% (max: %.1f%%)", loopPercent, m.config.Validation.MaxLoopPercent,
+			))
 		}
 	}
 
