@@ -233,7 +233,7 @@ func (m *Manager) processJob(job ValidationJob) {
 
 // recordAnalysisError logs an analysis error and records it in the result.
 func (m *Manager) recordAnalysisError(result *ValidationResult, analysisName, filePath string, err error) {
-	slog.Error(fmt.Sprintf("failed to analyze %s", analysisName), "file", filePath, "error", err)
+	slog.Error("failed to analyze", "analysis", analysisName, "file", filePath, "error", err)
 	result.Issues = append(result.Issues, fmt.Sprintf("%s analysis failed: %v", analysisName, err))
 	result.Valid = false
 }
