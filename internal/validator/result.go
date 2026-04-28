@@ -18,6 +18,7 @@ type ValidationResult struct {
 	SilencePercent float64   `json:"silence_percent"`
 	LoopPercent    float64   `json:"loop_percent"`
 	Valid          bool      `json:"valid"`
+	Skipped        bool      `json:"skipped,omitempty"`
 	Issues         []string  `json:"issues,omitempty"`
 }
 
