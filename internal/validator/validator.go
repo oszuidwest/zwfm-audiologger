@@ -76,14 +76,16 @@ func (m *Manager) Stop() {
 }
 
 // NotifyRecordingFailure sends an alert when a recording fails to be created.
-// This is called by the recorder when FFmpeg or remux fails.
+// Called by the recorder for any recording failure: directory creation error,
+// insufficient disk space, disk check error, FFmpeg failure, or remux failure.
 func (m *Manager) NotifyRecordingFailure(station, reason string) {
 	if m.alerter == nil {
 		return
 	}
+	failedAt := utils.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), constants.AlertNotifyTimeout)
 	defer cancel()
-	if err := m.alerter.SendRecordingFailure(ctx, station, reason); err != nil {
+	if err := m.alerter.SendRecordingFailure(ctx, station, reason, failedAt); err != nil {
 		slog.Error("failed to send recording failure alert", "station", station, "error", err)
 	}
 }
@@ -101,7 +103,8 @@ func (m *Manager) MarkSkipped(filePath, station, timestamp string) {
 	}
 	validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)
 	if err := result.Save(validationFile); err != nil {
-		slog.Error("failed to write catchup validation sidecar", "file", validationFile, "error", err)
+		slog.Error("failed to write catchup validation sidecar; file may be re-queued for validation on next startup and may trigger a false short-duration failure alert",
+			"file", validationFile, "error", err)
 	}
 }
 

@@ -81,16 +81,19 @@ func main() {
 		validatorManager = validator.New(cfg)
 	}
 
-	// Build a non-nil Notifier only when the validator is active; passing a nil
-	// concrete pointer as an interface would produce a non-nil interface value and
-	// cause unexpected behaviour in the recorder.
+	// Build non-nil interface values only when the validator is active. Passing a
+	// typed nil concrete pointer as an interface produces a non-nil interface value
+	// (the type field is set, the value field is nil), which bypasses nil guards in
+	// the recorder and causes a nil-pointer panic on first use.
+	var validatorIface recorder.Validator
 	var notifier recorder.Notifier
 	if validatorManager != nil {
+		validatorIface = validatorManager
 		notifier = validatorManager
 	}
 
 	// Initialize components.
-	recorderManager := recorder.New(cfg, validatorManager, notifier)
+	recorderManager := recorder.New(cfg, validatorIface, notifier)
 
 	// Run test mode if requested.
 	if *testMode {
