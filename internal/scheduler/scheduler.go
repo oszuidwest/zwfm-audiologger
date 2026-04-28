@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -90,6 +91,11 @@ func (s *Scheduler) startCatchupRecordings() {
 
 	remainingSecs := 3600 - elapsedSecs
 
+	// Skip if too little of the hour remains; a tiny recording is not worth the overhead.
+	if remainingSecs < constants.CatchupMinRemainingSecs {
+		return
+	}
+
 	// Build the timestamp for the start of the current hour in the configured timezone.
 	hourStart := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location())
 	timestamp := hourStart.Format(utils.HourlyTimestampFormat)
@@ -103,7 +109,7 @@ func (s *Scheduler) startCatchupRecordings() {
 		go func(stationName string, stationCfg *config.Station) {
 			defer func() {
 				if r := recover(); r != nil {
-					slog.Error("panic in catchup recording", "station", stationName, "panic", r)
+					slog.Error("panic in catchup recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
 
@@ -127,7 +133,7 @@ func (s *Scheduler) runAllRecordings() {
 		go func(stationName string, stationConfig *config.Station) {
 			defer func() {
 				if r := recover(); r != nil {
-					slog.Error("panic in recording", "station", stationName, "panic", r)
+					slog.Error("panic in recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
 			s.recorder.Scheduled(stationName, stationConfig)
@@ -139,7 +145,7 @@ func (s *Scheduler) runAllRecordings() {
 func (s *Scheduler) runCleanup() {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("panic in cleanup", "panic", r)
+			slog.Error("panic in cleanup", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 	s.cleanupOldRecordings()

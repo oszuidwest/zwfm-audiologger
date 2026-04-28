@@ -81,7 +81,9 @@ func (m *Manager) NotifyRecordingFailure(station, reason string) {
 	if m.alerter == nil {
 		return
 	}
-	if err := m.alerter.SendRecordingFailure(context.Background(), station, reason); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), constants.AlertNotifyTimeout)
+	defer cancel()
+	if err := m.alerter.SendRecordingFailure(ctx, station, reason); err != nil {
 		slog.Error("failed to send recording failure alert", "station", station, "error", err)
 	}
 }

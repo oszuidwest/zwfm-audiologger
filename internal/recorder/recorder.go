@@ -78,9 +78,16 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 	}
 
 	// Refuse to record if available disk space is below the minimum threshold.
-	if available, err := utils.AvailableDiskBytes(dir); err != nil {
-		slog.Warn("failed to check disk space, proceeding anyway", "station", name, "error", err)
-	} else if available < constants.MinDiskSpaceBytes {
+	available, err := utils.AvailableDiskBytes(dir)
+	if err != nil {
+		reason := fmt.Sprintf("disk space check failed: %v", err)
+		slog.Error("skipping recording", "station", name, "reason", reason)
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, reason)
+		}
+		return
+	}
+	if available < constants.MinDiskSpaceBytes {
 		reason := fmt.Sprintf("insufficient disk space: %d bytes available, %d required", available, constants.MinDiskSpaceBytes)
 		slog.Error("skipping recording", "station", name, "reason", reason)
 		if m.notifier != nil {

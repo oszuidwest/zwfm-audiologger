@@ -63,4 +63,12 @@ const (
 	// CatchupGraceSecs is the number of seconds into an hour below which we skip catchup
 	// and let the normal cron job handle the recording.
 	CatchupGraceSecs = 5
+
+	// CatchupMinRemainingSecs is the minimum seconds remaining in an hour to bother
+	// starting a catchup recording. Below this threshold the overhead is not worth it.
+	CatchupMinRemainingSecs = 60
+
+	// AlertNotifyTimeout is the maximum time allowed to deliver a recording failure alert,
+	// including all retries. Bounds the synchronous notify call in the recorder goroutine.
+	AlertNotifyTimeout = 2 * time.Minute
 )
