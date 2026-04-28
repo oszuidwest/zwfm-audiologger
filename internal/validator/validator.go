@@ -75,6 +75,36 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
+// NotifyRecordingFailure sends an alert when a recording fails to be created.
+// This is called by the recorder when FFmpeg or remux fails.
+func (m *Manager) NotifyRecordingFailure(station, reason string) {
+	if m.alerter == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), constants.AlertNotifyTimeout)
+	defer cancel()
+	if err := m.alerter.SendRecordingFailure(ctx, station, reason); err != nil {
+		slog.Error("failed to send recording failure alert", "station", station, "error", err)
+	}
+}
+
+// MarkSkipped writes a validation sidecar that marks a recording as valid without
+// running validation checks. This prevents scanUnvalidated from re-queuing the
+// file on the next startup after a catchup recording.
+func (m *Manager) MarkSkipped(filePath, station, timestamp string) {
+	result := &ValidationResult{
+		Station:     station,
+		Timestamp:   timestamp,
+		ValidatedAt: utils.Now(),
+		Valid:       true,
+		Skipped:     true,
+	}
+	validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)
+	if err := result.Save(validationFile); err != nil {
+		slog.Error("failed to write catchup validation sidecar", "file", validationFile, "error", err)
+	}
+}
+
 // Enqueue adds a file to the validation queue (non-blocking).
 func (m *Manager) Enqueue(filePath, station, timestamp string) {
 	job := ValidationJob{

@@ -56,4 +56,15 @@ const (
 
 	// ValidationFileSuffix is the file extension for validation result files.
 	ValidationFileSuffix = ".validation.json"
+
+	// MinDiskSpaceBytes is the minimum free disk space required before starting a recording.
+	MinDiskSpaceBytes = uint64(1 * 1024 * 1024 * 1024) // 1 GB
+
+	// CatchupMinRemainingSecs is the minimum seconds remaining in an hour to bother
+	// starting a catchup recording. Below this threshold the overhead is not worth it.
+	CatchupMinRemainingSecs = 60
+
+	// AlertNotifyTimeout is the maximum time allowed to deliver a recording failure alert,
+	// including all retries. Bounds the synchronous notify call in the recorder goroutine.
+	AlertNotifyTimeout = 2 * time.Minute
 )

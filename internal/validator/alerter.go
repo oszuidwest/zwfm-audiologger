@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
+	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
@@ -108,6 +110,47 @@ func (a *Alerter) Send(ctx context.Context, result *ValidationResult) error {
 	return a.sendWithRetry(ctx, message)
 }
 
+// SendRecordingFailure sends an alert email when a recording fails to be created.
+func (a *Alerter) SendRecordingFailure(ctx context.Context, station, reason string) error {
+	recipients := a.getRecipients(station)
+	if len(recipients) == 0 {
+		slog.Warn("no alert recipients configured", "station", station)
+		return nil
+	}
+
+	subject := fmt.Sprintf("%s Recording failed: %s", emailSubjectPrefix, station)
+	content := buildRecordingFailureContent(station, reason)
+
+	message := &graphMailRequest{
+		Message: graphMessage{
+			Subject: subject,
+			Body: graphBody{
+				ContentType: emailContentType,
+				Content:     content,
+			},
+			ToRecipients: buildRecipientList(recipients),
+		},
+	}
+
+	return a.sendWithRetry(ctx, message)
+}
+
+// buildRecordingFailureContent constructs an HTML email body for a recording failure.
+func buildRecordingFailureContent(station, reason string) string {
+	var b strings.Builder
+
+	b.WriteString("<html><body>")
+	b.WriteString("<h2>Recording Failed</h2>")
+	b.WriteString("<table style='border-collapse: collapse;'>")
+	writeTableRow(&b, "Station", station)
+	writeTableRow(&b, "Time", utils.Now().Format(time.RFC3339))
+	writeTableRow(&b, "Reason", reason)
+	b.WriteString("</table>")
+	b.WriteString("</body></html>")
+
+	return b.String()
+}
+
 // getRecipients returns the email recipients for a station.
 func (a *Alerter) getRecipients(station string) []string {
 	// Check station-specific recipients first.
@@ -179,7 +222,7 @@ func buildEmailContent(result *ValidationResult) string {
 	if len(result.Issues) > 0 {
 		b.WriteString("<h3>Issues:</h3><ul>")
 		for _, issue := range result.Issues {
-			fmt.Fprintf(&b, "<li>%s</li>", issue)
+			fmt.Fprintf(&b, "<li>%s</li>", html.EscapeString(issue))
 		}
 		b.WriteString("</ul>")
 	}
@@ -190,9 +233,9 @@ func buildEmailContent(result *ValidationResult) string {
 	return b.String()
 }
 
-// writeTableRow writes an HTML table row to the builder.
+// writeTableRow writes an HTML table row to the builder, escaping the value.
 func writeTableRow(b *strings.Builder, label, value string) {
-	fmt.Fprintf(b, "<tr><td><strong>%s:</strong></td><td>%s</td></tr>", label, value)
+	fmt.Fprintf(b, "<tr><td><strong>%s:</strong></td><td>%s</td></tr>", label, html.EscapeString(value))
 }
 
 // buildRecipientList converts email addresses to Graph API recipient format.

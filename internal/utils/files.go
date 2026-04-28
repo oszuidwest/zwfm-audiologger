@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 )
@@ -40,4 +41,15 @@ func IsAudioFile(name string) bool {
 	default:
 		return false
 	}
+}
+
+// AvailableDiskBytes returns the number of free bytes available on the filesystem
+// containing the given path.
+func AvailableDiskBytes(path string) (uint64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, fmt.Errorf("statfs %s: %w", path, err)
+	}
+	//nolint:gosec // Bsize is always positive; conversion from signed to unsigned is safe here.
+	return stat.Bavail * uint64(stat.Bsize), nil
 }
