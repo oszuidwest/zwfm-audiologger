@@ -17,27 +17,29 @@ import (
 
 // Server handles HTTP requests for recording control.
 type Server struct {
-	config       *config.Config
-	recorder     *recorder.Manager
-	mux          *http.ServeMux
-	accessLogger *slog.Logger
+	config        *config.Config
+	recorder      *recorder.Manager
+	mux           *http.ServeMux
+	accessLogger  *slog.Logger
+	accessLogFile *os.File // nil when falling back to stdout
 }
 
 // New creates a new HTTP server.
 func New(cfg *config.Config, rec *recorder.Manager) *Server {
-	// Create access log file
-	accessLogFile, err := os.OpenFile(constants.DefaultAccessLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.LogFilePermissions)
-	if err != nil {
-		// Fallback to stdout if can't create log file
-		slog.Warn("Cannot create access.log, falling back to stdout", "error", err)
-		accessLogFile = os.Stdout
+	s := &Server{
+		config:   cfg,
+		recorder: rec,
+		mux:      http.NewServeMux(),
 	}
 
-	s := &Server{
-		config:       cfg,
-		recorder:     rec,
-		mux:          http.NewServeMux(),
-		accessLogger: slog.New(slog.NewJSONHandler(accessLogFile, nil)),
+	// Open access log file; fall back to stdout on failure.
+	f, err := os.OpenFile(constants.DefaultAccessLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.LogFilePermissions)
+	if err != nil {
+		slog.Warn("Cannot create access.log, falling back to stdout", "error", err)
+		s.accessLogger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	} else {
+		s.accessLogFile = f
+		s.accessLogger = slog.New(slog.NewJSONHandler(f, nil))
 	}
 
 	// Setup routes
@@ -92,6 +94,14 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("http server shutdown error", "error", err)
 	}
+
+	// Close the access log file if one was opened.
+	if s.accessLogFile != nil {
+		if err := s.accessLogFile.Close(); err != nil {
+			slog.Warn("failed to close access log file", "error", err)
+		}
+	}
+
 	return ctx.Err()
 }
 
