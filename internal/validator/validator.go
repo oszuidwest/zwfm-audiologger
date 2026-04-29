@@ -11,7 +11,14 @@ import (
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
+	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
+)
+
+// Compile-time interface checks.
+var (
+	_ recorder.Validator = (*Manager)(nil)
+	_ recorder.Notifier  = (*Manager)(nil)
 )
 
 // ValidationJob represents a file to be validated.
