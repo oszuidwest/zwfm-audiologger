@@ -4,18 +4,20 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
+	"time"
 )
 
 // RecordCommand creates an FFmpeg command for recording audio streams with
 // built-in reconnection support and timeout handling.
-func RecordCommand(ctx context.Context, streamURL, duration, outputFile string) *exec.Cmd {
+func RecordCommand(ctx context.Context, streamURL string, duration time.Duration, outputFile string) *exec.Cmd {
 	args := []string{
 		"-reconnect", "1", // Enable reconnection
 		"-reconnect_streamed", "1", // Reconnect even for streamed protocols
 		"-reconnect_delay_max", "10", // Max 10 seconds between reconnect attempts
 		"-timeout", "10000000", // 10 second connection timeout (in microseconds)
 		"-i", streamURL,
-		"-t", duration,
+		"-t", strconv.FormatFloat(duration.Seconds(), 'f', -1, 64),
 		"-c", "copy",
 		"-y", outputFile,
 	}

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
@@ -72,8 +71,8 @@ func (m *Manager) Scheduled(name string, station *config.Station) {
 
 // Catchup performs a recording for the remainder of the current hour after a mid-hour startup.
 func (m *Manager) Catchup(name string, station *config.Station, timestamp string, durationSecs int) {
-	duration := strconv.Itoa(durationSecs)
-	timeout := time.Duration(durationSecs+300) * time.Second // 5-minute buffer beyond duration
+	duration := time.Duration(durationSecs) * time.Second
+	timeout := duration + 5*time.Minute // 5-minute buffer beyond duration
 
 	if station.MetadataURL != "" {
 		go m.saveMetadata(name, station, timestamp)
@@ -96,7 +95,7 @@ type recordOptions struct {
 	name           string
 	station        *config.Station
 	timestamp      string
-	duration       string
+	duration       time.Duration
 	timeout        time.Duration
 	skipValidation bool
 }

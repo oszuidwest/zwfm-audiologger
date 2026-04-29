@@ -5,12 +5,12 @@ package constants
 import "time"
 
 const (
-	// HourlyRecordingDuration is the duration in seconds for hourly recordings.
-	HourlyRecordingDuration = "3600"
+	// HourlyRecordingDuration is the target duration for hourly recordings.
+	HourlyRecordingDuration = time.Hour
 	// HourlyRecordingTimeout is the maximum allowed time for hourly recordings.
 	HourlyRecordingTimeout = 65 * time.Minute
-	// TestRecordingDuration is the duration in seconds for test recordings.
-	TestRecordingDuration = "10"
+	// TestRecordingDuration is the target duration for test recordings.
+	TestRecordingDuration = 10 * time.Second
 	// TestRecordingTimeout is the maximum allowed time for test recordings.
 	TestRecordingTimeout = 30 * time.Second
 

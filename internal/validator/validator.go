@@ -112,7 +112,7 @@ func (m *Manager) MarkSkipped(filePath, station, timestamp string) {
 	validationFile := utils.SidecarPath(filePath, constants.ValidationFileSuffix)
 	if err := result.Save(validationFile); err != nil {
 		slog.Error("failed to write catchup validation sidecar",
-			"detail", "file may be re-queued for validation on restart and may trigger a false short-duration alert",
+			"detail", "file may be re-queued for validation on restart and may trigger a false positive on the minimum-duration check",
 			"file", validationFile,
 			"error", err,
 		)
