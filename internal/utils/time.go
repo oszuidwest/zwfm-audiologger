@@ -25,7 +25,8 @@ var (
 func SetTimezone(timezoneStr string) {
 	loc, err := time.LoadLocation(timezoneStr)
 	if err != nil {
-		slog.Error("invalid timezone in config, falling back to UTC; recording filenames will use UTC timestamps", "timezone", timezoneStr, "error", err)
+		slog.Error("invalid timezone in config, falling back to UTC; recording filenames will use UTC timestamps",
+			"timezone", timezoneStr, "error", err)
 		loc = time.UTC
 	} else {
 		slog.Info("Timezone set", "timezone", timezoneStr)

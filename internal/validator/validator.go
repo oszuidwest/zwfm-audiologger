@@ -129,7 +129,8 @@ func (m *Manager) Enqueue(filePath, station, timestamp string) {
 func (m *Manager) scanUnvalidated() {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("panic in scanUnvalidated; some stations may not have been scanned", "panic", r, "stack", string(debug.Stack()))
+			slog.Error("panic in scanUnvalidated; some stations may not have been scanned",
+				"panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 
