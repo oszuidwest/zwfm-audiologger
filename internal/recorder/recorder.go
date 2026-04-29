@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
@@ -60,13 +59,20 @@ func (m *Manager) Scheduled(name string, station *config.Station) {
 		go m.saveMetadata(name, station, timestamp)
 	}
 
-	m.record(name, station, timestamp, constants.HourlyRecordingDuration, constants.HourlyRecordingTimeout, false)
+	m.record(recordOptions{
+		name:           name,
+		station:        station,
+		timestamp:      timestamp,
+		duration:       constants.HourlyRecordingDuration,
+		timeout:        constants.HourlyRecordingTimeout,
+		skipValidation: false,
+	})
 }
 
 // Catchup performs a recording for the remainder of the current hour after a mid-hour startup.
 func (m *Manager) Catchup(name string, station *config.Station, timestamp string, durationSecs int) {
-	duration := strconv.Itoa(durationSecs)
-	timeout := time.Duration(durationSecs+300) * time.Second // 5-minute buffer beyond duration
+	duration := time.Duration(durationSecs) * time.Second
+	timeout := duration + 5*time.Minute // 5-minute buffer beyond duration
 
 	if station.MetadataURL != "" {
 		go m.saveMetadata(name, station, timestamp)
@@ -74,15 +80,44 @@ func (m *Manager) Catchup(name string, station *config.Station, timestamp string
 
 	// Skip validation: catchup recordings are partial by definition and would
 	// always fail the MinDurationSecs check.
-	m.record(name, station, timestamp, duration, timeout, true)
+	m.record(recordOptions{
+		name:           name,
+		station:        station,
+		timestamp:      timestamp,
+		duration:       duration,
+		timeout:        timeout,
+		skipValidation: true,
+	})
+}
+
+// recordOptions holds the parameters for a recording operation.
+type recordOptions struct {
+	name           string
+	station        *config.Station
+	timestamp      string
+	duration       time.Duration
+	timeout        time.Duration
+	skipValidation bool
 }
 
 // record performs the actual recording operation.
-func (m *Manager) record(name string, station *config.Station, timestamp, duration string, timeout time.Duration, skipValidation bool) {
+func (m *Manager) record(opts recordOptions) {
+	name := opts.name
+	station := opts.station
+	timestamp := opts.timestamp
+	duration := opts.duration
+	timeout := opts.timeout
+	skipValidation := opts.skipValidation
+
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
 		reason := fmt.Sprintf("failed to create recording directory: %v", err)
-		slog.Error("skipping recording", "station", name, "reason", reason, "recordings_dir", m.config.RecordingsDir, "computed_dir", dir)
+		slog.Error("skipping recording",
+			"station", name,
+			"reason", reason,
+			"recordings_dir", m.config.RecordingsDir,
+			"computed_dir", dir,
+		)
 		if m.notifier != nil {
 			m.notifier.NotifyRecordingFailure(name, reason)
 		}
@@ -130,7 +165,14 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 		if len(outputStr) > 500 {
 			outputStr = outputStr[:500] + "... (truncated)"
 		}
-		slog.Error("failed recording", "station", name, "error", err, "ffmpeg_command", strings.Join(cmd.Args[1:], " "), "stream_url", station.StreamURL, "output_file", tempFile, "ffmpeg_output", outputStr)
+		slog.Error("failed recording",
+			"station", name,
+			"error", err,
+			"ffmpeg_command", strings.Join(cmd.Args[1:], " "),
+			"stream_url", station.StreamURL,
+			"output_file", tempFile,
+			"ffmpeg_output", outputStr,
+		)
 
 		if m.notifier != nil {
 			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
@@ -156,7 +198,13 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 		if len(outputStr) > 500 {
 			outputStr = outputStr[:500] + "... (truncated)"
 		}
-		slog.Error("failed to remux recording", "station", name, "temp_file", tempFile, "final_file", finalFile, "error", err, "remux_output", outputStr)
+		slog.Error("failed to remux recording",
+			"station", name,
+			"temp_file", tempFile,
+			"final_file", finalFile,
+			"error", err,
+			"remux_output", outputStr,
+		)
 
 		if m.notifier != nil {
 			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("remux failed: %v", err))
@@ -218,7 +266,14 @@ func (m *Manager) Test() {
 
 	for name, station := range m.config.Stations {
 		timestamp := "test-" + utils.TestTimestamp()
-		m.record(name, &station, timestamp, constants.TestRecordingDuration, constants.TestRecordingTimeout, false)
+		m.record(recordOptions{
+			name:           name,
+			station:        &station,
+			timestamp:      timestamp,
+			duration:       constants.TestRecordingDuration,
+			timeout:        constants.TestRecordingTimeout,
+			skipValidation: false,
+		})
 	}
 
 	slog.Info("Test recordings completed")

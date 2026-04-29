@@ -115,7 +115,7 @@ var rmsRegex = regexp.MustCompile(`RMS_level=(-?[\d.]+|inf|-inf)`)
 
 // parseRMSValues extracts RMS level values from astats output.
 func parseRMSValues(output string) []float64 {
-	var values []float64
+	values := make([]float64, 0)
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()

@@ -33,7 +33,9 @@ func New(cfg *config.Config, rec *recorder.Manager) *Server {
 	}
 
 	// Open access log file; fall back to stdout on failure.
-	f, err := os.OpenFile(constants.DefaultAccessLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.LogFilePermissions)
+	f, err := os.OpenFile(
+		constants.DefaultAccessLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, constants.LogFilePermissions,
+	)
 	if err != nil {
 		slog.Warn("Cannot create access.log, falling back to stdout", "error", err)
 		s.accessLogger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -122,7 +124,12 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(lrw, r)
 
-		s.accessLogger.Info("HTTP request", "method", r.Method, "path", r.URL.Path, "status", lrw.statusCode, "duration", time.Since(start))
+		s.accessLogger.Info("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", lrw.statusCode,
+			"duration", time.Since(start),
+		)
 	})
 }
 
