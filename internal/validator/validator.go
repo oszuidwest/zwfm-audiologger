@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -126,6 +127,13 @@ func (m *Manager) Enqueue(filePath, station, timestamp string) {
 
 // scanUnvalidated finds recordings without validation files and queues them.
 func (m *Manager) scanUnvalidated() {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in scanUnvalidated; some stations may not have been scanned",
+				"panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
 	slog.Info("Scanning for unvalidated recordings")
 
 	for stationName := range m.config.Stations {
