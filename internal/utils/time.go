@@ -21,11 +21,11 @@ var (
 )
 
 // SetTimezone sets the application timezone from a timezone string.
-// Falls back to UTC and logs a warning if the timezone string is invalid.
+// Falls back to UTC and logs an error if the timezone string is invalid.
 func SetTimezone(timezoneStr string) {
 	loc, err := time.LoadLocation(timezoneStr)
 	if err != nil {
-		slog.Warn("failed to load timezone, using UTC", "timezone", timezoneStr, "error", err)
+		slog.Error("invalid timezone in config, falling back to UTC; recording filenames will use UTC timestamps", "timezone", timezoneStr, "error", err)
 		loc = time.UTC
 	} else {
 		slog.Info("Timezone set", "timezone", timezoneStr)

@@ -191,7 +191,7 @@ func (m *Manager) record(name string, station *config.Station, timestamp, durati
 func (m *Manager) saveMetadata(stationName string, station *config.Station, timestamp string) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("panic in saveMetadata", "station", stationName, "panic", r, "stack", string(debug.Stack()))
+			slog.Error("panic in saveMetadata; metadata sidecar was not written for this recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 
