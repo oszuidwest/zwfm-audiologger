@@ -91,17 +91,21 @@ func (s *Server) Start(ctx context.Context) error {
 	slog.Info("Shutting down HTTP server")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("http server shutdown error", "error", err)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		slog.Error("http server shutdown error", "error", shutdownErr)
 	}
 
 	// Close the access log file if one was opened.
 	if s.accessLogFile != nil {
 		if err := s.accessLogFile.Close(); err != nil {
-			slog.Warn("failed to close access log file", "error", err)
+			slog.Error("failed to close access log file", "error", err)
 		}
 	}
 
+	if shutdownErr != nil {
+		return shutdownErr
+	}
 	return ctx.Err()
 }
 
