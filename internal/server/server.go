@@ -21,7 +21,7 @@ type Server struct {
 	recorder      *recorder.Manager
 	mux           *http.ServeMux
 	accessLogger  *slog.Logger
-	accessLogFile *os.File // nil when falling back to stdout
+	accessLogFile *os.File // nil when falling back to stdout.
 }
 
 // New creates a new HTTP server.
@@ -96,8 +96,11 @@ func (s *Server) Start(ctx context.Context) error {
 		slog.Error("http server shutdown error", "error", shutdownErr)
 	}
 
-	// Close the access log file if one was opened.
-	if s.accessLogFile != nil {
+	// Close the access log file only after a clean shutdown.
+	// If Shutdown timed out, handlers may still be writing to the log;
+	// closing early would silently discard those log entries.
+	// On a forced exit the OS flushes and closes the FD.
+	if shutdownErr == nil && s.accessLogFile != nil {
 		if err := s.accessLogFile.Close(); err != nil {
 			slog.Error("failed to close access log file", "error", err)
 		}
