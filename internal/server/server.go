@@ -85,6 +85,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Wait for context cancellation or server error.
 	select {
 	case err := <-errCh:
+		s.closeAccessLogFile()
 		return err
 	case <-ctx.Done():
 	}
@@ -101,17 +102,28 @@ func (s *Server) Start(ctx context.Context) error {
 	// Close the access log file only after a clean shutdown.
 	// If Shutdown timed out, handlers may still be writing to the log;
 	// closing early would silently discard those log entries.
-	// On a forced exit the OS flushes and closes the FD.
-	if shutdownErr == nil && s.accessLogFile != nil {
-		if err := s.accessLogFile.Close(); err != nil {
-			slog.Error("failed to close access log file", "error", err)
-		}
+	// On a forced exit, the FD remains open until the process exits and the OS
+	// flushes and closes it.
+	if shutdownErr == nil {
+		s.closeAccessLogFile()
 	}
 
 	if shutdownErr != nil {
 		return shutdownErr
 	}
 	return ctx.Err()
+}
+
+// closeAccessLogFile closes the access log file, clears the field, and is safe to call repeatedly.
+func (s *Server) closeAccessLogFile() {
+	if s.accessLogFile == nil {
+		return
+	}
+	path := s.accessLogFile.Name()
+	if err := s.accessLogFile.Close(); err != nil {
+		slog.Error("failed to close access log file", "path", path, "error", err)
+	}
+	s.accessLogFile = nil
 }
 
 // loggingMiddleware logs HTTP requests.
