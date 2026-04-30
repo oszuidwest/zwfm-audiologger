@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - '**.go'
       - 'go.mod'
@@ -10,7 +10,7 @@ on:
       - '.golangci.yml'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [ main ]
+    branches: [main]
     paths:
       - '**.go'
       - 'go.mod'
@@ -25,42 +25,39 @@ jobs:
       contents: read
 
     steps:
-    - uses: actions/checkout@v6
-    
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        cache: true
-    
-    - name: Download dependencies
-      run: go mod download
-    
-    - name: Run tests
-      run: go test -race -shuffle=on -v ./...
-    
-    - name: Run go vet
-      run: go vet ./...
-    
-    - name: Check formatting
-      run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "The following files are not formatted:"
-          gofmt -s -l .
-          exit 1
-        fi
-    
-    - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v9
-      with:
-        version: latest
-        args: --timeout=5m
+      - uses: actions/checkout@v6
 
-    - name: Check for dead code
-      run: go tool deadcode ./...
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
 
-    - name: Run govulncheck
-      run: go tool govulncheck ./...
+      - name: Download dependencies
+        run: go mod download
 
-    - name: Run staticcheck
-      run: go tool staticcheck ./...
+      - name: Run tests
+        run: go test -race -shuffle=on -v ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: |
+          go fmt ./...
+          git diff --exit-code
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.4
+          args: --timeout=5m
+
+      - name: Check for dead code
+        run: go tool deadcode ./...
+
+      - name: Run govulncheck
+        run: go tool govulncheck ./...
+
+      - name: Run staticcheck
+        run: go tool staticcheck ./...

@@ -14,12 +14,17 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build arguments
+# Build arguments. COMMIT and BUILD_TIME are normally provided by CI; for local
+# builds without --build-arg they fall back to git rev-parse and date below.
 ARG VERSION=dev
+ARG COMMIT=
+ARG BUILD_TIME=
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=${VERSION} -X main.buildTime=$(date -u +%Y-%m-%d_%H:%M:%S_UTC) -X main.gitCommit=$(git rev-parse --short HEAD)" \
+# Build the application.
+RUN COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}" && \
+    BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${COMMIT}" \
     -o audiologger .
 
 # Runtime stage
