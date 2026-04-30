@@ -12,7 +12,7 @@ An automated broadcast recording system designed for radio station compliance lo
 
 ## Requirements
 
-- Go 1.25.0 or higher
+- Go 1.26.2 or higher
 - FFmpeg and ffprobe
 
 ## Installation
@@ -43,6 +43,8 @@ The application requires a `config.json` file in the working directory:
   }
 }
 ```
+
+The repository `config.json` uses placeholder URLs. Mount or provide a deployment-specific config file for production streams.
 
 ### Configuration Options
 
@@ -118,7 +120,7 @@ services:
 ## Development
 
 ```bash
-go test ./...     # Execute test suite
+go test -race ./... # Execute test suite with race detection
 go fmt ./...      # Format source code
 go vet ./...      # Run static analysis
 deadcode ./...    # Detect unreachable code

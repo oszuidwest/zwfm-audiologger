@@ -38,7 +38,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	scheduler := cron.New(cron.WithLocation(utils.AppTimezone))
 
 	// Schedule hourly recordings at minute 0 of every hour
-	_, err := scheduler.AddFunc("0 * * * *", s.runAllRecordings, cron.WithName("Hourly recordings"))
+	_, err := scheduler.AddFunc("0 * * * *", func() { s.runAllRecordings(ctx) }, cron.WithName("Hourly recordings"))
 	if err != nil {
 		return fmt.Errorf("failed to schedule hourly recordings: %w", err)
 	}
@@ -57,7 +57,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	// If we started mid-hour, immediately record the remaining portion so no
 	// broadcast is lost between startup and the first cron trigger at minute 0.
-	s.startCatchupRecordings()
+	s.startCatchupRecordings(ctx)
 
 	// Start the scheduler
 	scheduler.Start()
@@ -104,7 +104,12 @@ func existingAudioFile(dir, timestamp string) (string, error) {
 // startCatchupRecordings immediately records the remainder of the current hour
 // if the service started mid-hour. This closes the gap that would otherwise
 // exist between startup and the first cron trigger at minute 0.
-func (s *Scheduler) startCatchupRecordings() {
+func (s *Scheduler) startCatchupRecordings(ctx context.Context) {
+	if ctx.Err() != nil {
+		slog.Info("catchup recordings skipped because scheduler context is done", "reason", ctx.Err())
+		return
+	}
+
 	now := utils.Now()
 	remainingSecs, needed := catchupRemaining(now)
 	if !needed {
@@ -127,6 +132,10 @@ func (s *Scheduler) startCatchupRecordings() {
 					slog.Error("panic in catchup recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
+			if ctx.Err() != nil {
+				slog.Info("catchup recording skipped because scheduler context is done", "station", stationName, "reason", ctx.Err())
+				return
+			}
 
 			dir := filepath.Join(s.config.RecordingsDir, stationName)
 			existing, err := existingAudioFile(dir, timestamp)
@@ -141,13 +150,18 @@ func (s *Scheduler) startCatchupRecordings() {
 				return
 			}
 
-			s.recorder.Catchup(stationName, stationCfg, timestamp, remainingSecs)
+			s.recorder.Catchup(ctx, stationName, stationCfg, timestamp, remainingSecs)
 		}(name, &station)
 	}
 }
 
 // runAllRecordings records all configured stations.
-func (s *Scheduler) runAllRecordings() {
+func (s *Scheduler) runAllRecordings(ctx context.Context) {
+	if ctx.Err() != nil {
+		slog.Info("scheduled recordings skipped because scheduler context is done", "reason", ctx.Err())
+		return
+	}
+
 	for name, station := range s.config.Stations {
 		go func(stationName string, stationConfig *config.Station) {
 			defer func() {
@@ -155,7 +169,11 @@ func (s *Scheduler) runAllRecordings() {
 					slog.Error("panic in recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
-			s.recorder.Scheduled(stationName, stationConfig)
+			if ctx.Err() != nil {
+				slog.Info("scheduled recording skipped because scheduler context is done", "station", stationName, "reason", ctx.Err())
+				return
+			}
+			s.recorder.Scheduled(ctx, stationName, stationConfig)
 		}(name, &station)
 	}
 }

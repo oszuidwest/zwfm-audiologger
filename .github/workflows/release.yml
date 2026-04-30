@@ -40,7 +40,7 @@ jobs:
       run: go mod download
     
     - name: Run tests
-      run: go test -v ./...
+      run: go test -race -shuffle=on -v ./...
     
     - name: Run go vet
       run: go vet ./...
@@ -54,6 +54,9 @@ jobs:
         fi
     
     - name: Build binaries
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+        COMMIT: ${{ github.sha }}
       run: |
         mkdir -p dist
         
@@ -72,23 +75,29 @@ jobs:
           GOARCH=${array[1]}
           GOARM=${array[2]}
 
-          output_name="audiologger-${{ steps.version.outputs.version }}-${GOOS}-${GOARCH}"
+          output_name="audiologger-${VERSION}-${GOOS}-${GOARCH}"
           
           echo "Building $output_name"
           
           env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build \
-            -ldflags="-s -w -X github.com/oszuidwest/zwfm-audiologger/internal/version.Version=${{ steps.version.outputs.version }} -X github.com/oszuidwest/zwfm-audiologger/internal/version.Commit=${{ github.sha }} -X github.com/oszuidwest/zwfm-audiologger/internal/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${COMMIT} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o dist/$output_name \
             .
         done
     
     - name: Create git tag (manual release)
       if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != 'edge'
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag ${{ steps.version.outputs.version }}
-        git push origin ${{ steps.version.outputs.version }}
+        if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+          echo "Tag $VERSION already exists; reusing it for the release."
+        else
+          git tag "$VERSION"
+          git push origin "refs/tags/$VERSION"
+        fi
     
     - name: Create GitHub Release
       if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != 'edge')

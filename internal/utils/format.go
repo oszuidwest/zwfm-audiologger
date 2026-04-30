@@ -40,29 +40,49 @@ func Format(filePath string) string {
 	}
 
 	if len(result.Streams) > 0 {
-		codec := strings.ToLower(result.Streams[0].CodecName)
-
-		// Use prefix matching for codec variants (more efficient than listing all variants)
-		if strings.HasPrefix(codec, "mp3") {
-			return ".mp3"
-		}
-
-		switch codec {
-		case "aac", "aac_latm":
-			return ".aac"
-		case "vorbis":
-			return ".ogg"
-		case "opus":
-			return ".opus"
-		case "flac":
-			return ".flac"
-		default:
-			// Use codec name as extension if unknown
-			return "." + codec
-		}
+		return extensionForCodec(result.Streams[0].CodecName)
 	}
 
+	slog.Warn("ffprobe returned no audio streams, defaulting to .mp3", "file", filePath)
 	return ".mp3" // Default fallback
+}
+
+func extensionForCodec(codecName string) string {
+	codec := strings.ToLower(codecName)
+	if codec == "" {
+		return ".mp3"
+	}
+
+	// Use prefix matching for codec variants (more efficient than listing all variants).
+	if strings.HasPrefix(codec, "mp3") {
+		return ".mp3"
+	}
+
+	switch codec {
+	case "aac", "aac_latm":
+		return ".aac"
+	case "vorbis":
+		return ".ogg"
+	case "opus":
+		return ".opus"
+	case "flac":
+		return ".flac"
+	default:
+		if !isSafeCodecName(codec) {
+			return ".mp3"
+		}
+		return "." + codec
+	}
+}
+
+func isSafeCodecName(codec string) bool {
+	for _, r := range codec {
+		if r == '_' || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // contentTypeMap maps file extensions to their MIME types.

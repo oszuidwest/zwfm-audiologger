@@ -4,15 +4,15 @@
   "keep_days": 31,
   "timezone": "Europe/Amsterdam",
   "stations": {
-    "zuidwest": {
-      "stream_url": "https://icecast.zuidwest.cloud/zuidwest.mp3",
-      "metadata_url": "https://www.zuidwestupdate.nl/wp-json/zw/v1/broadcast_data",
+    "station1": {
+      "stream_url": "https://stream.example.com/station1.mp3",
+      "metadata_url": "https://api.example.com/nowplaying/station1",
       "metadata_path": "fm.now",
       "parse_metadata": true
     },
-    "rucphen": {
-      "stream_url": "https://icecast.zuidwest.cloud/radiorucphen.aac",
-      "metadata_url": "https://rucphen.zuidwest.cloud/proxy.php",
+    "station2": {
+      "stream_url": "https://stream.example.com/station2.aac",
+      "metadata_url": "https://api.example.com/nowplaying/station2",
       "metadata_path": "fm.now",
       "parse_metadata": true
     }

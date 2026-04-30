@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -38,6 +39,8 @@ type Manager struct {
 	metadataFetcher *metadata.Fetcher
 	validator       Validator
 	notifier        Notifier
+	recordCommand   func(context.Context, string, time.Duration, string) *exec.Cmd
+	availableBytes  func(string) (uint64, error)
 }
 
 // New creates a new recording manager.
@@ -47,19 +50,21 @@ func New(cfg *config.Config, validator Validator, notifier Notifier) *Manager {
 		metadataFetcher: metadata.New(),
 		validator:       validator,
 		notifier:        notifier,
+		recordCommand:   utils.RecordCommand,
+		availableBytes:  utils.AvailableDiskBytes,
 	}
 }
 
 // Scheduled performs a scheduled recording with 1 hour duration.
-func (m *Manager) Scheduled(name string, station *config.Station) {
+func (m *Manager) Scheduled(ctx context.Context, name string, station *config.Station) {
 	timestamp := utils.HourlyTimestamp()
 
 	// Fetch metadata if configured
 	if station.MetadataURL != "" {
-		go m.saveMetadata(name, station, timestamp)
+		go m.saveMetadata(ctx, name, station, timestamp)
 	}
 
-	m.record(recordOptions{
+	m.record(ctx, recordOptions{
 		name:           name,
 		station:        station,
 		timestamp:      timestamp,
@@ -70,17 +75,17 @@ func (m *Manager) Scheduled(name string, station *config.Station) {
 }
 
 // Catchup performs a recording for the remainder of the current hour after a mid-hour startup.
-func (m *Manager) Catchup(name string, station *config.Station, timestamp string, durationSecs int) {
+func (m *Manager) Catchup(ctx context.Context, name string, station *config.Station, timestamp string, durationSecs int) {
 	duration := time.Duration(durationSecs) * time.Second
 	timeout := duration + 5*time.Minute // 5-minute buffer beyond duration
 
 	if station.MetadataURL != "" {
-		go m.saveMetadata(name, station, timestamp)
+		go m.saveMetadata(ctx, name, station, timestamp)
 	}
 
 	// Skip validation: catchup recordings are partial by definition and would
 	// always fail the MinDurationSecs check.
-	m.record(recordOptions{
+	m.record(ctx, recordOptions{
 		name:           name,
 		station:        station,
 		timestamp:      timestamp,
@@ -101,7 +106,12 @@ type recordOptions struct {
 }
 
 // record performs the actual recording operation.
-func (m *Manager) record(opts recordOptions) {
+func (m *Manager) record(ctx context.Context, opts recordOptions) {
+	if ctx.Err() != nil {
+		slog.Info("recording skipped because context is done", "station", opts.name, "reason", ctx.Err())
+		return
+	}
+
 	name := opts.name
 	station := opts.station
 	timestamp := opts.timestamp
@@ -125,7 +135,7 @@ func (m *Manager) record(opts recordOptions) {
 	}
 
 	// Refuse to record if available disk space is below the minimum threshold.
-	available, err := utils.AvailableDiskBytes(dir)
+	available, err := m.availableBytes(dir)
 	if err != nil {
 		reason := fmt.Sprintf("disk space check failed: %v", err)
 		slog.Error("skipping recording", "station", name, "reason", reason)
@@ -148,11 +158,11 @@ func (m *Manager) record(opts recordOptions) {
 
 	slog.Info("Recording started", "station", name, "file", tempFile)
 
-	// Create a context with a long timeout for recording
-	recordCtx, recordCancel := context.WithTimeout(context.Background(), timeout)
+	// Bound recording to both the requested duration timeout and caller cancellation.
+	recordCtx, recordCancel := context.WithTimeout(ctx, timeout)
 	defer recordCancel()
 
-	cmd := utils.RecordCommand(recordCtx, station.StreamURL, duration, tempFile)
+	cmd := m.recordCommand(recordCtx, station.StreamURL, duration, tempFile)
 	slog.Debug("FFmpeg args", "args", cmd.Args)
 
 	// Capture both stdout and stderr
@@ -160,28 +170,7 @@ func (m *Manager) record(opts recordOptions) {
 	recordCancel() // Explicitly cancel context after FFmpeg completes
 
 	if err != nil {
-		// Limit output to first 500 bytes to avoid excessive logging
-		outputStr := string(output)
-		if len(outputStr) > 500 {
-			outputStr = outputStr[:500] + "... (truncated)"
-		}
-		slog.Error("failed recording",
-			"station", name,
-			"error", err,
-			"ffmpeg_command", strings.Join(cmd.Args[1:], " "),
-			"stream_url", station.StreamURL,
-			"output_file", tempFile,
-			"ffmpeg_output", outputStr,
-		)
-
-		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
-		}
-
-		// Clean up temp file if it was created
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Warn("failed to clean up temp file after error", "file", tempFile, "error", err)
-		}
+		m.handleRecordingFailure(ctx, name, station, tempFile, cmd.Args, output, err)
 		return
 	}
 
@@ -235,8 +224,57 @@ func (m *Manager) record(opts recordOptions) {
 	}
 }
 
+func (m *Manager) handleRecordingFailure(
+	ctx context.Context,
+	name string,
+	station *config.Station,
+	tempFile string,
+	commandArgs []string,
+	output []byte,
+	err error,
+) {
+	if ctx.Err() != nil {
+		slog.Info("recording stopped by context cancellation",
+			"station", name,
+			"reason", ctx.Err(),
+			"output_file", tempFile,
+		)
+		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
+			slog.Warn("failed to clean up temp file after cancellation", "file", tempFile, "error", err)
+		}
+		return
+	}
+
+	// Limit output to first 500 bytes to avoid excessive logging
+	outputStr := string(output)
+	if len(outputStr) > 500 {
+		outputStr = outputStr[:500] + "... (truncated)"
+	}
+	ffmpegCommand := ""
+	if len(commandArgs) > 1 {
+		ffmpegCommand = strings.Join(commandArgs[1:], " ")
+	}
+	slog.Error("failed recording",
+		"station", name,
+		"error", err,
+		"ffmpeg_command", ffmpegCommand,
+		"stream_url", station.StreamURL,
+		"output_file", tempFile,
+		"ffmpeg_output", outputStr,
+	)
+
+	if m.notifier != nil {
+		m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
+	}
+
+	// Clean up temp file if it was created
+	if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
+		slog.Warn("failed to clean up temp file after error", "file", tempFile, "error", err)
+	}
+}
+
 // saveMetadata fetches and saves metadata for a recording.
-func (m *Manager) saveMetadata(stationName string, station *config.Station, timestamp string) {
+func (m *Manager) saveMetadata(ctx context.Context, stationName string, station *config.Station, timestamp string) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("panic in saveMetadata; metadata sidecar was not written for this recording",
@@ -245,6 +283,7 @@ func (m *Manager) saveMetadata(stationName string, station *config.Station, time
 	}()
 
 	meta := m.metadataFetcher.Fetch(
+		ctx,
 		station.MetadataURL,
 		station.MetadataPath,
 		station.ParseMetadata,
@@ -266,7 +305,7 @@ func (m *Manager) Test() {
 
 	for name, station := range m.config.Stations {
 		timestamp := "test-" + utils.TestTimestamp()
-		m.record(recordOptions{
+		m.record(context.Background(), recordOptions{
 			name:           name,
 			station:        &station,
 			timestamp:      timestamp,
