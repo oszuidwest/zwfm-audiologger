@@ -1,21 +1,18 @@
 name: Build and Publish Docker Image
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_call:
     inputs:
       version:
-        description: 'Version to build'
+        description: 'Version to build (e.g., "v1.2.3" or "edge")'
         required: true
         type: string
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (e.g., "v1.2.3", "latest", or "edge")'
+        description: 'Version to build (e.g., "v1.2.3" or "edge")'
         required: true
-        default: 'latest'
+        default: 'edge'
         type: string
 
 env:
@@ -35,71 +32,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set version from tag or latest
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
-            VERSION=${{ github.ref_name }}
-          elif [ "${{ github.event_name }}" = "workflow_call" ]; then
-            VERSION="${{ inputs.version }}"
-            # Checkout the tag if it's a version tag
-            if [[ "$VERSION" =~ ^v[0-9] ]]; then
-              git checkout "$VERSION"
-            fi
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ inputs.version }}" = "latest" ]; then
-              # Get the most recent tag
-              VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-              if [ -z "$VERSION" ]; then
-                echo "No tags found"
-                exit 1
-              fi
-              echo "GITHUB_REF=refs/tags/$VERSION" >> $GITHUB_ENV
-            elif [ "${{ inputs.version }}" = "edge" ]; then
-              VERSION="edge"
-            else
-              VERSION="${{ inputs.version }}"
-            fi
-          fi
-          
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+      # When run standalone (workflow_dispatch) with a version tag, check out that
+      # tag so the image source matches the version label. When called from
+      # release.yml, the workflow already runs at the tagged commit.
+      - name: Check out version tag (manual dispatch)
+        if: github.event_name == 'workflow_dispatch' && inputs.version != 'edge'
+        run: git checkout "${{ inputs.version }}"
 
-      - name: Set up Docker tags
-        id: docker_tags
-        run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          
-          # Remove 'v' prefix if present for Docker compatibility
-          DOCKER_TAG=${VERSION#v}
-          
-          # Always include the specific version tag
-          TAGS="${IMAGE}:${DOCKER_TAG}"
-          
-          # Add semantic version tags if applicable
-          if [[ $DOCKER_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            # Extract major and minor versions
-            MAJOR=$(echo $DOCKER_TAG | cut -d. -f1)
-            MINOR=$(echo $DOCKER_TAG | cut -d. -f1-2)
-            
-            TAGS="${TAGS},${IMAGE}:${MINOR}"
-            TAGS="${TAGS},${IMAGE}:${MAJOR}"
-            TAGS="${TAGS},${IMAGE}:latest"
-          fi
-          
-          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
-          echo "Docker tags: $TAGS"
+      - name: Compute build time
+        id: build_time
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
-      - name: Log in to the Container registry
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Container Registry
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # type=semver patterns extract from values starting with 'v' (e.g. v1.2.3 -> 1.2.3).
+          # Pre-release tags (v1.0.0-rc1) only emit {{version}}; latest/major/minor are skipped.
+          tags: |
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+            type=semver,pattern={{major}},value=${{ inputs.version }}
+            type=raw,value=latest,enable=${{ inputs.version != 'edge' && !contains(inputs.version, '-') }}
+            type=raw,value=edge,enable=${{ inputs.version == 'edge' }}
+          labels: |
+            org.opencontainers.image.title=ZuidWest FM Audio Logger
+            org.opencontainers.image.description=Hourly stream recorder for radio broadcasts
+            org.opencontainers.image.vendor=Streekomroep ZuidWest
+            org.opencontainers.image.licenses=MIT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
@@ -109,18 +80,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           pull: true
-          tags: ${{ steps.docker_tags.outputs.TAGS }}
-          labels: |
-            org.opencontainers.image.title=${{ github.repository }}
-            org.opencontainers.image.description=ZuidWest FM Audio Logger
-            org.opencontainers.image.vendor=Streekomroep ZuidWest
-            org.opencontainers.image.version=${{ steps.version.outputs.VERSION }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
-          build-args: |
-            VERSION=${{ steps.version.outputs.VERSION }}
-            COMMIT=${{ github.sha }}
-            BUILD_TIME=${{ github.event.repository.updated_at }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
           sbom: false
+          build-args: |
+            VERSION=${{ inputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.build_time.outputs.value }}

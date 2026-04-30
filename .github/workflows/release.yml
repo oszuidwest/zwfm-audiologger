@@ -16,51 +16,63 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-latest
-    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_release: ${{ steps.version.outputs.is_release }}
+
     steps:
     - uses: actions/checkout@v6
       with:
         fetch-depth: 0
-    
+
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
         go-version-file: 'go.mod'
-    
+        cache: true
+
     - name: Determine version
       id: version
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event.inputs.version }}" = "edge" ]; then
+            echo "version=edge" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          fi
         else
           echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
         fi
-    
+
     - name: Download dependencies
       run: go mod download
-    
+
     - name: Run tests
       run: go test -race -shuffle=on -v ./...
-    
+
     - name: Run go vet
       run: go vet ./...
-    
+
     - name: Check formatting
       run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "The following files are not formatted:"
-          gofmt -s -l .
-          exit 1
-        fi
-    
+        go fmt ./...
+        git diff --exit-code
+
     - name: Build binaries
       env:
         VERSION: ${{ steps.version.outputs.version }}
         COMMIT: ${{ github.sha }}
       run: |
+        # Edge builds embed the short SHA so artifacts are traceable to a commit.
+        if [ "$VERSION" = "edge" ]; then
+          VERSION="edge-$(git rev-parse --short HEAD)"
+        fi
+
         mkdir -p dist
-        
-        # Build for multiple platforms
+
         platforms=(
           "linux/amd64"
           "linux/arm64"
@@ -76,17 +88,17 @@ jobs:
           GOARM=${array[2]}
 
           output_name="audiologger-${VERSION}-${GOOS}-${GOARCH}"
-          
+
           echo "Building $output_name"
-          
-          env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM go build \
+
+          env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM CGO_ENABLED=0 go build \
             -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${COMMIT} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o dist/$output_name \
             .
         done
-    
+
     - name: Create git tag (manual release)
-      if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != 'edge'
+      if: github.event_name == 'workflow_dispatch' && steps.version.outputs.is_release == 'true'
       env:
         VERSION: ${{ steps.version.outputs.version }}
       run: |
@@ -98,23 +110,33 @@ jobs:
           git tag "$VERSION"
           git push origin "refs/tags/$VERSION"
         fi
-    
+
     - name: Create GitHub Release
-      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != 'edge')
+      if: steps.version.outputs.is_release == 'true'
       uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ steps.version.outputs.version }}
         files: dist/*
         generate_release_notes: true
         draft: false
-        prerelease: false
+        prerelease: ${{ contains(steps.version.outputs.version, '-') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
+
     - name: Upload edge artifacts
-      if: github.event_name == 'workflow_dispatch' && github.event.inputs.version == 'edge'
+      if: steps.version.outputs.is_release == 'false'
       uses: actions/upload-artifact@v7
       with:
-        name: audiologger-edge
+        name: audiologger-edge-${{ github.sha }}
         path: dist/*
         retention-days: 7
+
+  docker:
+    needs: release
+    if: needs.release.outputs.is_release == 'true' && needs.release.result == 'success'
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    permissions:
+      contents: read
+      packages: write
