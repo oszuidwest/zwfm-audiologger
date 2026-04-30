@@ -1,3 +1,4 @@
+---
 services:
   audiologger:
     image: ghcr.io/oszuidwest/zwfm-audiologger:latest
