@@ -22,10 +22,11 @@ import (
 )
 
 // Build information variables set via ldflags during build.
+// PascalCase matches the contract of oszuidwest/.github-templates go-release.yml@v1.
 var (
-	version   = "dev"
-	buildTime = "unknown"
-	gitCommit = "unknown"
+	Version   = "dev"
+	BuildTime = "unknown"
+	Commit    = "unknown"
 )
 
 func main() {
@@ -42,9 +43,9 @@ func main() {
 	// Show version if requested
 	if *showVersion {
 		fmt.Printf("ZuidWest FM Audio Logger\n")
-		fmt.Printf("Version:    %s\n", version)
-		fmt.Printf("Build Time: %s\n", buildTime)
-		fmt.Printf("Git Commit: %s\n", gitCommit)
+		fmt.Printf("Version:    %s\n", Version)
+		fmt.Printf("Build Time: %s\n", BuildTime)
+		fmt.Printf("Git Commit: %s\n", Commit)
 		fmt.Printf("Go Version: %s\n", runtime.Version())
 		fmt.Printf("Platform:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		return

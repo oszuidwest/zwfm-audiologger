@@ -1,3 +1,6 @@
+---
+# Thin shim — delegates to oszuidwest/.github-templates go-release.yml@v1.
+# enable-docker: true triggers transitive docker-publish.yml@v1 for releases.
 name: Release
 
 on:
@@ -7,136 +10,29 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build'
+        description: 'Version to build (edge or vX.Y.Z)'
         required: true
         default: 'edge'
 
 jobs:
   release:
+    uses: oszuidwest/.github-templates/.github/workflows/go-release.yml@v1
+    with:
+      project-name: audiologger
+      ldflags-target: main
+      build-matrix: >-
+        [{"os":"linux","arch":"amd64"},
+         {"os":"linux","arch":"arm64"},
+         {"os":"linux","arch":"arm","arm":"7"},
+         {"os":"darwin","arch":"amd64"},
+         {"os":"darwin","arch":"arm64"}]
+      version: ${{ inputs.version }}
+      enable-docker: true
+      image-labels: |
+        org.opencontainers.image.title=ZuidWest FM Audio Logger
+        org.opencontainers.image.description=Hourly stream recorder for radio broadcasts
+        org.opencontainers.image.vendor=Streekomroep ZuidWest
+        org.opencontainers.image.licenses=MIT
     permissions:
       contents: write
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      is_release: ${{ steps.version.outputs.is_release }}
-
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        cache: true
-
-    - name: Determine version
-      id: version
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          if [ "${{ github.event.inputs.version }}" = "edge" ]; then
-            echo "version=edge" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "is_release=true" >> $GITHUB_OUTPUT
-          fi
-        else
-          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          echo "is_release=true" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Download dependencies
-      run: go mod download
-
-    - name: Run tests
-      run: go test -race -shuffle=on -v ./...
-
-    - name: Run go vet
-      run: go vet ./...
-
-    - name: Check formatting
-      run: |
-        go fmt ./...
-        git diff --exit-code
-
-    - name: Build binaries
-      env:
-        VERSION: ${{ steps.version.outputs.version }}
-        COMMIT: ${{ github.sha }}
-      run: |
-        # Edge builds embed the short SHA so artifacts are traceable to a commit.
-        if [ "$VERSION" = "edge" ]; then
-          VERSION="edge-$(git rev-parse --short HEAD)"
-        fi
-
-        mkdir -p dist
-
-        platforms=(
-          "linux/amd64"
-          "linux/arm64"
-          "linux/arm/7"
-          "darwin/amd64"
-          "darwin/arm64"
-        )
-
-        for platform in "${platforms[@]}"; do
-          IFS='/' read -r -a array <<< "$platform"
-          GOOS=${array[0]}
-          GOARCH=${array[1]}
-          GOARM=${array[2]}
-
-          output_name="audiologger-${VERSION}-${GOOS}-${GOARCH}"
-
-          echo "Building $output_name"
-
-          env GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM CGO_ENABLED=0 go build \
-            -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${COMMIT} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -o dist/$output_name \
-            .
-        done
-
-    - name: Create git tag (manual release)
-      if: github.event_name == 'workflow_dispatch' && steps.version.outputs.is_release == 'true'
-      env:
-        VERSION: ${{ steps.version.outputs.version }}
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-          echo "Tag $VERSION already exists; reusing it for the release."
-        else
-          git tag "$VERSION"
-          git push origin "refs/tags/$VERSION"
-        fi
-
-    - name: Create GitHub Release
-      if: steps.version.outputs.is_release == 'true'
-      uses: softprops/action-gh-release@v3
-      with:
-        tag_name: ${{ steps.version.outputs.version }}
-        files: dist/*
-        generate_release_notes: true
-        draft: false
-        prerelease: ${{ contains(steps.version.outputs.version, '-') }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload edge artifacts
-      if: steps.version.outputs.is_release == 'false'
-      uses: actions/upload-artifact@v7
-      with:
-        name: audiologger-edge-${{ github.sha }}
-        path: dist/*
-        retention-days: 7
-
-  docker:
-    needs: release
-    if: needs.release.outputs.is_release == 'true' && needs.release.result == 'success'
-    uses: ./.github/workflows/docker-publish.yml
-    with:
-      version: ${{ needs.release.outputs.version }}
-    permissions:
-      contents: read
       packages: write
