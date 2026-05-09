@@ -3,7 +3,7 @@
 # enable-docker: true triggers transitive docker-publish.yml@v1 for releases.
 name: Release
 
-on:
+'on':
   push:
     tags:
       - 'v*'
@@ -13,6 +13,9 @@ on:
         description: 'Version to build (edge or vX.Y.Z)'
         required: true
         default: 'edge'
+
+permissions:
+  contents: read
 
 jobs:
   release:
@@ -30,7 +33,7 @@ jobs:
       enable-docker: true
       image-labels: |
         org.opencontainers.image.title=ZuidWest FM Audio Logger
-        org.opencontainers.image.description=Hourly stream recorder for radio broadcasts
+        org.opencontainers.image.description=Hourly broadcast recorder
         org.opencontainers.image.vendor=Streekomroep ZuidWest
         org.opencontainers.image.licenses=MIT
     permissions:
