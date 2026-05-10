@@ -1,7 +1,4 @@
 ---
-# Thin shim — delegates to oszuidwest/.github-templates go-release.yml@v2.
-# Docker publishing is composed via a second job that calls
-# docker-publish.yml@v2 directly, gated on the release outputs.
 name: Release
 
 on:
