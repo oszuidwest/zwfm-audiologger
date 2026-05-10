@@ -1,5 +1,5 @@
 ---
-# Thin shim — delegates to oszuidwest/.github-templates go-ci.yml@v1.
+# Thin shim — delegates to oszuidwest/.github-templates go-ci.yml@v2.
 name: CI
 
 on:
@@ -25,6 +25,6 @@ permissions:
 
 jobs:
   ci:
-    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v1
+    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v2
     with:
       golangci-lint-version: v2.12.1
