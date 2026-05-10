@@ -1,5 +1,4 @@
 ---
-# Thin shim — delegates to oszuidwest/.github-templates go-ci.yml@v2.
 name: CI
 
 on:
