@@ -3,6 +3,8 @@
   "port": 8080,
   "keep_days": 31,
   "timezone": "Europe/Amsterdam",
+  "ffmpeg_path": "ffmpeg",
+  "ffprobe_path": "ffprobe",
   "stations": {
     "station1": {
       "stream_url": "https://stream.example.com/station1.mp3",

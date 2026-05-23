@@ -27,7 +27,7 @@ func (m *Manager) analyzeDuration(ctx context.Context, file string) (float64, er
 	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
 	defer cancel()
 
-	cmd := utils.ProbeCommand(ctx, file)
+	cmd := utils.ProbeCommand(ctx, m.config.FFprobePath, file)
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("ffprobe failed: %w", err)
@@ -58,7 +58,7 @@ func (m *Manager) analyzeSilence(ctx context.Context, file string) (float64, err
 	thresholdDB := int(m.config.Validation.SilenceThresholdDB)
 	minDuration := m.config.Validation.MaxSilenceSecs
 
-	cmd := utils.SilenceDetectCommand(ctx, file, thresholdDB, minDuration)
+	cmd := utils.SilenceDetectCommand(ctx, m.config.FFmpegPath, file, thresholdDB, minDuration)
 
 	// silencedetect outputs to stderr.
 	var stderr bytes.Buffer
@@ -90,7 +90,7 @@ func (m *Manager) analyzeLoops(ctx context.Context, file string) (float64, error
 	ctx, cancel := context.WithTimeout(ctx, constants.ValidationAnalysisTimeout)
 	defer cancel()
 
-	cmd := utils.AudioStatsCommand(ctx, file)
+	cmd := utils.AudioStatsCommand(ctx, m.config.FFmpegPath, file)
 
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout

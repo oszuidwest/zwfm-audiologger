@@ -32,6 +32,8 @@ The application looks for `config.json` in the working directory. Override with 
   "port": 8080,
   "keep_days": 31,
   "timezone": "Europe/Amsterdam",
+  "ffmpeg_path": "ffmpeg",
+  "ffprobe_path": "ffprobe",
   "stations": {
     "station1": {
       "stream_url": "https://stream.example.com/station1.mp3",
@@ -51,6 +53,8 @@ The application looks for `config.json` in the working directory. Override with 
 | `port` | int | `8080` | HTTP server listen port. |
 | `keep_days` | int | `31` | Days to retain recordings before cleanup. |
 | `timezone` | string | `UTC` | Timezone for hour-of-day scheduling. |
+| `ffmpeg_path` | string | `ffmpeg` | FFmpeg executable path used for recording, remuxing, and validation. |
+| `ffprobe_path` | string | `ffprobe` | ffprobe executable path used for format detection and validation. |
 | `stations` | object | required | Map of station ID to station config. |
 | `validation` | object | optional | Enables post-recording validation and alerts. See below. |
 

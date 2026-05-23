@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
@@ -42,6 +43,12 @@ func TestLoadAppliesDefaultsAndParsesStations(t *testing.T) {
 	if cfg.Timezone != constants.DefaultTimezone {
 		t.Errorf("Timezone = %q, want %q", cfg.Timezone, constants.DefaultTimezone)
 	}
+	if cfg.FFmpegPath != constants.DefaultFFmpegPath {
+		t.Errorf("FFmpegPath = %q, want %q", cfg.FFmpegPath, constants.DefaultFFmpegPath)
+	}
+	if cfg.FFprobePath != constants.DefaultFFprobePath {
+		t.Errorf("FFprobePath = %q, want %q", cfg.FFprobePath, constants.DefaultFFprobePath)
+	}
 
 	station := cfg.Stations["station1"]
 	if station.StreamURL != "https://stream.example.com/station1.mp3" {
@@ -67,5 +74,52 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 
 	if _, err := Load(configPath); err == nil {
 		t.Fatal("Load returned nil error for config with an unknown field")
+	}
+}
+
+func TestValidateAcceptsConfiguredBinaries(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		FFmpegPath:  os.Args[0],
+		FFprobePath: os.Args[0],
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestValidateRequiresFFmpeg(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		FFmpegPath:  "/definitely/missing/ffmpeg",
+		FFprobePath: os.Args[0],
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate returned nil error")
+	}
+	if !strings.Contains(err.Error(), "ffmpeg binary not found") {
+		t.Fatalf("Validate error = %v, want ffmpeg error", err)
+	}
+}
+
+func TestValidateRequiresFFprobe(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		FFmpegPath:  os.Args[0],
+		FFprobePath: "/definitely/missing/ffprobe",
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate returned nil error")
+	}
+	if !strings.Contains(err.Error(), "ffprobe binary not found") {
+		t.Fatalf("Validate error = %v, want ffprobe error", err)
 	}
 }
