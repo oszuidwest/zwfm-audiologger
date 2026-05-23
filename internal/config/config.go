@@ -3,6 +3,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -76,14 +77,14 @@ func Load(path string) (*Config, error) {
 // It does not validate other configuration fields.
 func (c *Config) Validate() error {
 	if c.FFmpegPath == "" {
-		return fmt.Errorf("ffmpeg_path must not be empty")
+		return errors.New("ffmpeg_path must not be empty")
 	}
 	if _, err := exec.LookPath(c.FFmpegPath); err != nil {
 		return fmt.Errorf("ffmpeg binary not found at %q: ensure ffmpeg_path in config.json points to a valid binary: %w", c.FFmpegPath, err)
 	}
 
 	if c.FFprobePath == "" {
-		return fmt.Errorf("ffprobe_path must not be empty")
+		return errors.New("ffprobe_path must not be empty")
 	}
 	if _, err := exec.LookPath(c.FFprobePath); err != nil {
 		return fmt.Errorf("ffprobe binary not found at %q: ensure ffprobe_path in config.json points to a valid binary: %w", c.FFprobePath, err)
