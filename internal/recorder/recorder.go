@@ -178,7 +178,19 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	}
 
 	// Detect format from the recorded file and remux to proper container
-	format := utils.Format(m.config.FFprobePath, tempFile)
+	format, err := utils.Format(m.config.FFprobePath, tempFile)
+	if err != nil {
+		reason := fmt.Sprintf("format detection failed: %v", err)
+		slog.Error("failed to detect recording format",
+			"station", name,
+			"temp_file", tempFile,
+			"error", err,
+		)
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, reason)
+		}
+		return
+	}
 	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
 
 	// Remux the .mkv file to proper container format

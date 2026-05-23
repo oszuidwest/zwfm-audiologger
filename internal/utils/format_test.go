@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,8 +43,56 @@ func TestFormatUsesConfiguredFFprobePath(t *testing.T) {
 		t.Fatalf("write fake ffprobe: %v", err)
 	}
 
-	if got := Format(ffprobePath, "recording.mkv"); got != ".opus" {
+	got, err := Format(ffprobePath, "recording.mkv")
+	if err != nil {
+		t.Fatalf("Format returned error: %v", err)
+	}
+	if got != ".opus" {
 		t.Fatalf("Format() = %q, want %q", got, ".opus")
+	}
+}
+
+func TestFormatReturnsErrorWhenFFprobeFails(t *testing.T) {
+	ffprobePath := filepath.Join(t.TempDir(), "fake-ffprobe")
+	if err := os.WriteFile(ffprobePath, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write fake ffprobe: %v", err)
+	}
+
+	format, err := Format(ffprobePath, "recording.mkv")
+	if err == nil {
+		t.Fatal("Format returned nil error")
+	}
+	if format != "" {
+		t.Fatalf("Format returned format %q, want empty", format)
+	}
+	if !strings.Contains(err.Error(), "run ffprobe") {
+		t.Fatalf("Format error = %v, want run ffprobe context", err)
+	}
+}
+
+func TestFormatReturnsErrorForInvalidFFprobeOutput(t *testing.T) {
+	ffprobePath := filepath.Join(t.TempDir(), "fake-ffprobe")
+	if err := os.WriteFile(ffprobePath, []byte("#!/bin/sh\nprintf 'not-json'\n"), 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write fake ffprobe: %v", err)
+	}
+
+	if _, err := Format(ffprobePath, "recording.mkv"); err == nil {
+		t.Fatal("Format returned nil error")
+	} else if !strings.Contains(err.Error(), "parse ffprobe output") {
+		t.Fatalf("Format error = %v, want parse context", err)
+	}
+}
+
+func TestFormatReturnsErrorForNoAudioStreams(t *testing.T) {
+	ffprobePath := filepath.Join(t.TempDir(), "fake-ffprobe")
+	if err := os.WriteFile(ffprobePath, []byte("#!/bin/sh\nprintf '%s\\n' '{\"streams\":[]}'\n"), 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write fake ffprobe: %v", err)
+	}
+
+	if _, err := Format(ffprobePath, "recording.mkv"); err == nil {
+		t.Fatal("Format returned nil error")
+	} else if !strings.Contains(err.Error(), "no audio streams") {
+		t.Fatalf("Format error = %v, want no audio streams context", err)
 	}
 }
 

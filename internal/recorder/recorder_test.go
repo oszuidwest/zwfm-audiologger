@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,11 +16,21 @@ import (
 )
 
 type recordingFailureNotifier struct {
-	calls atomic.Int32
+	calls  atomic.Int32
+	reason atomic.Value
 }
 
-func (n *recordingFailureNotifier) NotifyRecordingFailure(_, _ string) {
+func (n *recordingFailureNotifier) NotifyRecordingFailure(_, reason string) {
 	n.calls.Add(1)
+	n.reason.Store(reason)
+}
+
+func (n *recordingFailureNotifier) lastReason() string {
+	reason := n.reason.Load()
+	if reason == nil {
+		return ""
+	}
+	return reason.(string)
 }
 
 func TestScheduledAndCatchupDoNotNotifyOnParentContextCancellation(t *testing.T) {
@@ -148,6 +159,59 @@ printf remuxed > "$1"
 	finalFile := utils.RecordingPath(recordingsDir, "station", timestamp, ".aac")
 	if _, err := os.Stat(finalFile); err != nil {
 		t.Fatalf("final recording not written at detected format path: %v", err)
+	}
+}
+
+func TestRecordNotifiesAndKeepsTempFileWhenFormatDetectionFails(t *testing.T) {
+	recordingsDir := t.TempDir()
+	binDir := t.TempDir()
+	ffprobePath := filepath.Join(binDir, "ffprobe")
+	ffmpegPath := filepath.Join(binDir, "ffmpeg")
+	remuxMarker := filepath.Join(binDir, "remux.marker")
+	t.Setenv("FAKE_FFMPEG_MARKER", remuxMarker)
+
+	writeShellScript(t, ffprobePath, "#!/bin/sh\nexit 1\n")
+	writeShellScript(t, ffmpegPath, `#!/bin/sh
+printf remux > "$FAKE_FFMPEG_MARKER"
+exit 0
+`)
+
+	notifier := &recordingFailureNotifier{}
+	manager := New(&config.Config{
+		RecordingsDir: recordingsDir,
+		FFmpegPath:    ffmpegPath,
+		FFprobePath:   ffprobePath,
+	}, nil, notifier)
+	manager.recordCommand = func(ctx context.Context, _ string, _ time.Duration, outputFile string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestRecorderHelperProcess", "--", outputFile) //nolint:gosec // Test helper process and temp output path are controlled by this test.
+		cmd.Env = append(os.Environ(), "GO_WANT_RECORDER_WRITE_HELPER_PROCESS=1")
+		return cmd
+	}
+	manager.availableBytes = func(string) (uint64, error) {
+		return constants.MinDiskSpaceBytes, nil
+	}
+
+	const timestamp = "2026-04-30-23"
+	manager.record(context.Background(), recordOptions{
+		name:      "station",
+		station:   &config.Station{StreamURL: "https://stream.example.com/station.mp3"},
+		timestamp: timestamp,
+		duration:  time.Second,
+		timeout:   5 * time.Second,
+	})
+
+	if got := notifier.calls.Load(); got != 1 {
+		t.Fatalf("NotifyRecordingFailure calls = %d, want 1", got)
+	}
+	if reason := notifier.lastReason(); !strings.Contains(reason, "format detection failed") {
+		t.Fatalf("NotifyRecordingFailure reason = %q, want format detection failure", reason)
+	}
+	tempFile := utils.RecordingPath(recordingsDir, "station", timestamp, ".mkv")
+	if _, err := os.Stat(tempFile); err != nil {
+		t.Fatalf("temporary recording was not kept after format detection failure: %v", err)
+	}
+	if _, err := os.Stat(remuxMarker); !os.IsNotExist(err) {
+		t.Fatalf("remux command ran after format detection failure; stat error: %v", err)
 	}
 }
 
