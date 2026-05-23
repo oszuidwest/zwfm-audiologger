@@ -28,21 +28,24 @@ RUN COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}
     -o audiologger .
 
 # Runtime stage
-FROM alpine:3.23
+FROM debian:13-slim
 
 LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-audiologger"
 LABEL org.opencontainers.image.description="ZuidWest FM audiologger"
 
-# Install runtime dependencies
-RUN apk --no-cache upgrade && \
-    apk add --no-cache \
-    ffmpeg \
-    ca-certificates \
-    tzdata
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Create non-root user
-RUN addgroup -g 1001 audiologger && \
-    adduser -u 1001 -G audiologger -s /bin/sh -D audiologger
+# Install runtime dependencies.
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+    ca-certificates \
+    ffmpeg \
+    tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user.
+RUN groupadd --gid 1001 audiologger && \
+    useradd --uid 1001 --gid audiologger --home-dir /app --shell /usr/sbin/nologin --no-create-home audiologger
 
 # Set working directory
 WORKDIR /app
@@ -65,7 +68,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --timeout=3 -O /dev/null http://localhost:8080/health || exit 1
+    CMD ["/app/audiologger", "-healthcheck", "http://127.0.0.1:8080/health"]
 
 # Default command
-CMD ["./audiologger"]
+CMD ["/app/audiologger"]

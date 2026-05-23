@@ -38,6 +38,7 @@ func main() {
 	configFile := flag.String("config", "config.json", "Config file path")
 	testMode := flag.Bool("test", false, "Test recording (10 seconds)")
 	showVersion := flag.Bool("version", false, "Show version information")
+	healthcheckURL := flag.String("healthcheck", "", "Run HTTP healthcheck against URL and exit")
 	flag.Parse()
 
 	// Show version if requested
@@ -48,6 +49,14 @@ func main() {
 		fmt.Printf("Git Commit: %s\n", Commit)
 		fmt.Printf("Go Version: %s\n", runtime.Version())
 		fmt.Printf("Platform:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		return
+	}
+
+	if *healthcheckURL != "" {
+		if err := runHealthcheck(context.Background(), *healthcheckURL); err != nil {
+			slog.Error("healthcheck failed", "error", err)
+			os.Exit(1)
+		}
 		return
 	}
 
