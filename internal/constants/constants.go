@@ -24,6 +24,10 @@ const (
 	DefaultPort = 8080
 	// DefaultTimezone is the default timezone for the application.
 	DefaultTimezone = "UTC"
+	// DefaultFFmpegPath is the default FFmpeg executable name, resolved via PATH.
+	DefaultFFmpegPath = "ffmpeg"
+	// DefaultFFprobePath is the default ffprobe executable name, resolved via PATH.
+	DefaultFFprobePath = "ffprobe"
 
 	// DirPermissions defines the file mode for created directories.
 	DirPermissions = 0o755

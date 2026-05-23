@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
@@ -42,6 +43,12 @@ func TestLoadAppliesDefaultsAndParsesStations(t *testing.T) {
 	if cfg.Timezone != constants.DefaultTimezone {
 		t.Errorf("Timezone = %q, want %q", cfg.Timezone, constants.DefaultTimezone)
 	}
+	if cfg.FFmpegPath != constants.DefaultFFmpegPath {
+		t.Errorf("FFmpegPath = %q, want %q", cfg.FFmpegPath, constants.DefaultFFmpegPath)
+	}
+	if cfg.FFprobePath != constants.DefaultFFprobePath {
+		t.Errorf("FFprobePath = %q, want %q", cfg.FFprobePath, constants.DefaultFFprobePath)
+	}
 
 	station := cfg.Stations["station1"]
 	if station.StreamURL != "https://stream.example.com/station1.mp3" {
@@ -67,5 +74,131 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 
 	if _, err := Load(configPath); err == nil {
 		t.Fatal("Load returned nil error for config with an unknown field")
+	}
+}
+
+func TestValidateAcceptsConfiguredBinaries(t *testing.T) {
+	t.Parallel()
+
+	cfg := validTestConfig(t)
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestValidateAcceptsBinariesFromPATH(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"))
+	writeExecutable(t, filepath.Join(dir, "ffprobe"))
+	t.Setenv("PATH", dir)
+
+	cfg := &Config{
+		FFmpegPath:  "ffmpeg",
+		FFprobePath: "ffprobe",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestValidateRequiresConfiguredPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  *Config
+		want string
+	}{
+		{
+			name: "empty ffmpeg path",
+			cfg:  &Config{FFprobePath: validExecutablePath(t)},
+			want: "ffmpeg_path must not be empty",
+		},
+		{
+			name: "empty ffprobe path",
+			cfg:  &Config{FFmpegPath: validExecutablePath(t)},
+			want: "ffprobe_path must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.cfg.Validate()
+			assertErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestValidateRequiresFFmpeg(t *testing.T) {
+	t.Parallel()
+
+	cfg := validTestConfig(t)
+	cfg.FFmpegPath = filepath.Join(t.TempDir(), "missing-ffmpeg")
+
+	err := cfg.Validate()
+	assertErrorContains(t, err, "ffmpeg binary not found", cfg.FFmpegPath, "ffmpeg_path")
+}
+
+func TestValidateRequiresFFprobe(t *testing.T) {
+	t.Parallel()
+
+	cfg := validTestConfig(t)
+	cfg.FFprobePath = filepath.Join(t.TempDir(), "missing-ffprobe")
+
+	err := cfg.Validate()
+	assertErrorContains(t, err, "ffprobe binary not found", cfg.FFprobePath, "ffprobe_path")
+}
+
+func validTestConfig(t *testing.T) *Config {
+	t.Helper()
+
+	executablePath := validExecutablePath(t)
+
+	return &Config{
+		FFmpegPath:  executablePath,
+		FFprobePath: executablePath,
+	}
+}
+
+func validExecutablePath(t *testing.T) string {
+	t.Helper()
+
+	executablePath, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test executable path: %v", err)
+	}
+
+	return executablePath
+}
+
+func writeExecutable(t *testing.T, path string) {
+	t.Helper()
+
+	data := []byte("#!/bin/sh\nexit 0\n")
+	if err := os.WriteFile(path, data, 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write executable %s: %v", path, err)
+	}
+}
+
+func assertErrorContains(t *testing.T, err error, parts ...string) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	failed := false
+	for _, part := range parts {
+		if !strings.Contains(err.Error(), part) {
+			t.Errorf("expected error to contain %q, got: %v", part, err)
+			failed = true
+		}
+	}
+	if failed {
+		t.FailNow()
 	}
 }

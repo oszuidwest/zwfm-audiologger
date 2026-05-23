@@ -3,8 +3,10 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 )
@@ -15,6 +17,8 @@ type Config struct {
 	Port          int                `json:"port"`
 	KeepDays      int                `json:"keep_days"`
 	Timezone      string             `json:"timezone"`
+	FFmpegPath    string             `json:"ffmpeg_path"`
+	FFprobePath   string             `json:"ffprobe_path"`
 	Stations      map[string]Station `json:"stations"`
 	Validation    *ValidationConfig  `json:"validation,omitempty"`
 }
@@ -69,6 +73,26 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Validate verifies that FFmpegPath and FFprobePath resolve via exec.LookPath.
+// It does not validate other configuration fields.
+func (c *Config) Validate() error {
+	if c.FFmpegPath == "" {
+		return errors.New("ffmpeg_path must not be empty")
+	}
+	if _, err := exec.LookPath(c.FFmpegPath); err != nil {
+		return fmt.Errorf("ffmpeg binary not found at %q: ensure ffmpeg_path in config.json points to a valid binary: %w", c.FFmpegPath, err)
+	}
+
+	if c.FFprobePath == "" {
+		return errors.New("ffprobe_path must not be empty")
+	}
+	if _, err := exec.LookPath(c.FFprobePath); err != nil {
+		return fmt.Errorf("ffprobe binary not found at %q: ensure ffprobe_path in config.json points to a valid binary: %w", c.FFprobePath, err)
+	}
+
+	return nil
+}
+
 func (c *Config) applyDefaults() {
 	if c.RecordingsDir == "" {
 		c.RecordingsDir = constants.DefaultRecordingsDir
@@ -81,6 +105,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Timezone == "" {
 		c.Timezone = constants.DefaultTimezone
+	}
+	if c.FFmpegPath == "" {
+		c.FFmpegPath = constants.DefaultFFmpegPath
+	}
+	if c.FFprobePath == "" {
+		c.FFprobePath = constants.DefaultFFprobePath
 	}
 
 	if c.Validation != nil && c.Validation.Enabled {

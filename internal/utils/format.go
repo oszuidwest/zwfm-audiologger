@@ -2,7 +2,8 @@ package utils
 
 import (
 	"encoding/json"
-	"log/slog"
+	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -15,11 +16,12 @@ type ProbeResult struct {
 }
 
 // Format uses ffprobe to detect the actual format of a recorded audio file.
-// It returns the appropriate file extension based on the detected codec,
-// defaulting to ".mp3" if detection fails.
-func Format(filePath string) string {
+// It returns the appropriate file extension based on the detected codec.
+// ffprobePath must be a resolvable executable; the caller is responsible for validation.
+func Format(ffprobePath, filePath string) (string, error) {
 	// Run ffprobe on the file
-	cmd := exec.Command("ffprobe", //nolint:gosec // G204: args are from internal file paths, not user HTTP input
+	//nolint:gosec // ffprobePath comes from operator-controlled config; args are internal file paths.
+	cmd := exec.Command(ffprobePath,
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
@@ -29,22 +31,19 @@ func Format(filePath string) string {
 
 	output, err := cmd.Output()
 	if err != nil {
-		slog.Warn("ffprobe failed, defaulting to .mp3", "file", filePath, "error", err)
-		return ".mp3"
+		return "", fmt.Errorf("run ffprobe: %w", err)
 	}
 
 	var result ProbeResult
 	if err := json.Unmarshal(output, &result); err != nil {
-		slog.Warn("failed to parse ffprobe output, defaulting to .mp3", "file", filePath, "error", err)
-		return ".mp3"
+		return "", fmt.Errorf("parse ffprobe output: %w", err)
 	}
 
 	if len(result.Streams) > 0 {
-		return extensionForCodec(result.Streams[0].CodecName)
+		return extensionForCodec(result.Streams[0].CodecName), nil
 	}
 
-	slog.Warn("ffprobe returned no audio streams, defaulting to .mp3", "file", filePath)
-	return ".mp3" // Default fallback
+	return "", errors.New("ffprobe returned no audio streams")
 }
 
 func extensionForCodec(codecName string) string {

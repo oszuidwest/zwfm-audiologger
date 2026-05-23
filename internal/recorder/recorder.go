@@ -50,8 +50,11 @@ func New(cfg *config.Config, validator Validator, notifier Notifier) *Manager {
 		metadataFetcher: metadata.New(),
 		validator:       validator,
 		notifier:        notifier,
-		recordCommand:   utils.RecordCommand,
-		availableBytes:  utils.AvailableDiskBytes,
+		// Capture cfg here so tests can replace recordCommand without changing production config lookup.
+		recordCommand: func(ctx context.Context, streamURL string, duration time.Duration, outputFile string) *exec.Cmd {
+			return utils.RecordCommand(ctx, cfg.FFmpegPath, streamURL, duration, outputFile)
+		},
+		availableBytes: utils.AvailableDiskBytes,
 	}
 }
 
@@ -175,11 +178,23 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	}
 
 	// Detect format from the recorded file and remux to proper container
-	format := utils.Format(tempFile)
+	format, err := utils.Format(m.config.FFprobePath, tempFile)
+	if err != nil {
+		reason := fmt.Sprintf("format detection failed: %v", err)
+		slog.Error("failed to detect recording format",
+			"station", name,
+			"temp_file", tempFile,
+			"error", err,
+		)
+		if m.notifier != nil {
+			m.notifier.NotifyRecordingFailure(name, reason)
+		}
+		return
+	}
 	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
 
 	// Remux the .mkv file to proper container format
-	remuxCmd := utils.RemuxCommand(tempFile, finalFile)
+	remuxCmd := utils.RemuxCommand(m.config.FFmpegPath, tempFile, finalFile)
 	remuxOutput, err := remuxCmd.CombinedOutput()
 	if err != nil {
 		// Limit output to first 500 bytes to avoid excessive logging
