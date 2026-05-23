@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -11,32 +12,32 @@ func TestFFmpegCommandPaths(t *testing.T) {
 
 	tests := []struct {
 		name string
-		got  string
+		cmd  *exec.Cmd
 		want string
 	}{
 		{
 			name: "record",
-			got:  RecordCommand(context.Background(), "/custom/ffmpeg", "https://stream.example.com", time.Second, "out.mkv").Args[0],
+			cmd:  RecordCommand(context.Background(), "/custom/ffmpeg", "https://stream.example.com", time.Second, "out.mkv"),
 			want: "/custom/ffmpeg",
 		},
 		{
 			name: "remux",
-			got:  RemuxCommand("/custom/ffmpeg", "in.mkv", "out.mp3").Args[0],
+			cmd:  RemuxCommand("/custom/ffmpeg", "in.mkv", "out.mp3"),
 			want: "/custom/ffmpeg",
 		},
 		{
 			name: "probe",
-			got:  ProbeCommand(context.Background(), "/custom/ffprobe", "in.mp3").Args[0],
+			cmd:  ProbeCommand(context.Background(), "/custom/ffprobe", "in.mp3"),
 			want: "/custom/ffprobe",
 		},
 		{
 			name: "silence detect",
-			got:  SilenceDetectCommand(context.Background(), "/custom/ffmpeg", "in.mp3", -40, 5).Args[0],
+			cmd:  SilenceDetectCommand(context.Background(), "/custom/ffmpeg", "in.mp3", -40, 5),
 			want: "/custom/ffmpeg",
 		},
 		{
 			name: "audio stats",
-			got:  AudioStatsCommand(context.Background(), "/custom/ffmpeg", "in.mp3").Args[0],
+			cmd:  AudioStatsCommand(context.Background(), "/custom/ffmpeg", "in.mp3"),
 			want: "/custom/ffmpeg",
 		},
 	}
@@ -45,8 +46,11 @@ func TestFFmpegCommandPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if tt.got != tt.want {
-				t.Fatalf("command path = %q, want %q", tt.got, tt.want)
+			if tt.cmd.Args[0] != tt.want {
+				t.Errorf("Args[0] = %q, want %q", tt.cmd.Args[0], tt.want)
+			}
+			if tt.cmd.Path != tt.want {
+				t.Errorf("Path = %q, want %q", tt.cmd.Path, tt.want)
 			}
 		})
 	}

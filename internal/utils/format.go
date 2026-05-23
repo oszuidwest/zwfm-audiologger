@@ -17,9 +17,11 @@ type ProbeResult struct {
 // Format uses ffprobe to detect the actual format of a recorded audio file.
 // It returns the appropriate file extension based on the detected codec,
 // defaulting to ".mp3" if detection fails.
+// ffprobePath must be a resolvable executable; the caller is responsible for validation.
 func Format(ffprobePath, filePath string) string {
 	// Run ffprobe on the file
-	cmd := exec.Command(ffprobePath, //nolint:gosec // Binary path is validated at startup; args are from internal file paths, not user HTTP input.
+	//nolint:gosec // ffprobePath comes from operator-controlled config; args are internal file paths.
+	cmd := exec.Command(ffprobePath,
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",

@@ -50,6 +50,7 @@ func New(cfg *config.Config, validator Validator, notifier Notifier) *Manager {
 		metadataFetcher: metadata.New(),
 		validator:       validator,
 		notifier:        notifier,
+		// Capture cfg here so tests can replace recordCommand without changing production config lookup.
 		recordCommand: func(ctx context.Context, streamURL string, duration time.Duration, outputFile string) *exec.Cmd {
 			return utils.RecordCommand(ctx, cfg.FFmpegPath, streamURL, duration, outputFile)
 		},

@@ -87,27 +87,84 @@ func TestValidateAcceptsConfiguredBinaries(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsBinariesFromPATH(t *testing.T) {
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "ffmpeg"))
+	writeExecutable(t, filepath.Join(dir, "ffprobe"))
+	t.Setenv("PATH", dir)
+
+	cfg := &Config{
+		FFmpegPath:  "ffmpeg",
+		FFprobePath: "ffprobe",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestValidateRequiresConfiguredPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  *Config
+		want string
+	}{
+		{
+			name: "empty ffmpeg path",
+			cfg:  &Config{FFprobePath: validExecutablePath(t)},
+			want: "ffmpeg_path must not be empty",
+		},
+		{
+			name: "empty ffprobe path",
+			cfg:  &Config{FFmpegPath: validExecutablePath(t)},
+			want: "ffprobe_path must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.cfg.Validate()
+			assertErrorContains(t, err, tt.want)
+		})
+	}
+}
+
 func TestValidateRequiresFFmpeg(t *testing.T) {
 	t.Parallel()
 
 	cfg := validTestConfig(t)
-	cfg.FFmpegPath = "/definitely/missing/ffmpeg"
+	cfg.FFmpegPath = filepath.Join(t.TempDir(), "missing-ffmpeg")
 
 	err := cfg.Validate()
-	assertErrorContains(t, err, "ffmpeg binary not found", "/definitely/missing/ffmpeg", "ffmpeg_path")
+	assertErrorContains(t, err, "ffmpeg binary not found", cfg.FFmpegPath, "ffmpeg_path")
 }
 
 func TestValidateRequiresFFprobe(t *testing.T) {
 	t.Parallel()
 
 	cfg := validTestConfig(t)
-	cfg.FFprobePath = "/definitely/missing/ffprobe"
+	cfg.FFprobePath = filepath.Join(t.TempDir(), "missing-ffprobe")
 
 	err := cfg.Validate()
-	assertErrorContains(t, err, "ffprobe binary not found", "/definitely/missing/ffprobe", "ffprobe_path")
+	assertErrorContains(t, err, "ffprobe binary not found", cfg.FFprobePath, "ffprobe_path")
 }
 
 func validTestConfig(t *testing.T) *Config {
+	t.Helper()
+
+	executablePath := validExecutablePath(t)
+
+	return &Config{
+		FFmpegPath:  executablePath,
+		FFprobePath: executablePath,
+	}
+}
+
+func validExecutablePath(t *testing.T) string {
 	t.Helper()
 
 	executablePath, err := os.Executable()
@@ -115,9 +172,15 @@ func validTestConfig(t *testing.T) *Config {
 		t.Fatalf("test executable path: %v", err)
 	}
 
-	return &Config{
-		FFmpegPath:  executablePath,
-		FFprobePath: executablePath,
+	return executablePath
+}
+
+func writeExecutable(t *testing.T, path string) {
+	t.Helper()
+
+	data := []byte("#!/bin/sh\nexit 0\n")
+	if err := os.WriteFile(path, data, 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write executable %s: %v", path, err)
 	}
 }
 
@@ -128,9 +191,14 @@ func assertErrorContains(t *testing.T, err error, parts ...string) {
 		t.Fatal("expected error")
 	}
 
+	failed := false
 	for _, part := range parts {
 		if !strings.Contains(err.Error(), part) {
-			t.Fatalf("expected error to contain %q, got: %v", part, err)
+			t.Errorf("expected error to contain %q, got: %v", part, err)
+			failed = true
 		}
+	}
+	if failed {
+		t.FailNow()
 	}
 }

@@ -94,6 +94,63 @@ func TestScheduledAndCatchupDoNotNotifyOnParentContextCancellation(t *testing.T)
 	}
 }
 
+func TestRecordUsesConfiguredProbeAndRemuxPaths(t *testing.T) {
+	recordingsDir := t.TempDir()
+	binDir := t.TempDir()
+	ffprobePath := filepath.Join(binDir, "ffprobe")
+	ffmpegPath := filepath.Join(binDir, "ffmpeg")
+	probeMarker := filepath.Join(binDir, "probe.marker")
+	remuxMarker := filepath.Join(binDir, "remux.marker")
+	t.Setenv("FAKE_FFPROBE_MARKER", probeMarker)
+	t.Setenv("FAKE_FFMPEG_MARKER", remuxMarker)
+
+	writeShellScript(t, ffprobePath, `#!/bin/sh
+printf probe > "$FAKE_FFPROBE_MARKER"
+printf '%s\n' '{"streams":[{"codec_name":"aac"}]}'
+`)
+	writeShellScript(t, ffmpegPath, `#!/bin/sh
+printf remux > "$FAKE_FFMPEG_MARKER"
+while [ "$#" -gt 1 ]; do
+	shift
+done
+printf remuxed > "$1"
+`)
+
+	manager := New(&config.Config{
+		RecordingsDir: recordingsDir,
+		FFmpegPath:    ffmpegPath,
+		FFprobePath:   ffprobePath,
+	}, nil, nil)
+	manager.recordCommand = func(ctx context.Context, _ string, _ time.Duration, outputFile string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestRecorderHelperProcess", "--", outputFile) //nolint:gosec // Test helper process and temp output path are controlled by this test.
+		cmd.Env = append(os.Environ(), "GO_WANT_RECORDER_WRITE_HELPER_PROCESS=1")
+		return cmd
+	}
+	manager.availableBytes = func(string) (uint64, error) {
+		return constants.MinDiskSpaceBytes, nil
+	}
+
+	const timestamp = "2026-04-30-23"
+	manager.record(context.Background(), recordOptions{
+		name:      "station",
+		station:   &config.Station{StreamURL: "https://stream.example.com/station.aac"},
+		timestamp: timestamp,
+		duration:  time.Second,
+		timeout:   5 * time.Second,
+	})
+
+	if _, err := os.Stat(probeMarker); err != nil {
+		t.Fatalf("configured ffprobe was not executed: %v", err)
+	}
+	if _, err := os.Stat(remuxMarker); err != nil {
+		t.Fatalf("configured ffmpeg was not executed for remux: %v", err)
+	}
+	finalFile := utils.RecordingPath(recordingsDir, "station", timestamp, ".aac")
+	if _, err := os.Stat(finalFile); err != nil {
+		t.Fatalf("final recording not written at detected format path: %v", err)
+	}
+}
+
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
 
@@ -108,7 +165,9 @@ func waitForFile(t *testing.T, path string) {
 }
 
 func TestRecorderHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_RECORDER_HELPER_PROCESS") != "1" {
+	shouldSleep := os.Getenv("GO_WANT_RECORDER_HELPER_PROCESS") == "1"
+	shouldExit := os.Getenv("GO_WANT_RECORDER_WRITE_HELPER_PROCESS") == "1"
+	if !shouldSleep && !shouldExit {
 		return
 	}
 
@@ -123,5 +182,16 @@ func TestRecorderHelperProcess(t *testing.T) {
 		os.Exit(2)
 	}
 
+	if shouldExit {
+		os.Exit(0)
+	}
 	time.Sleep(24 * time.Hour)
+}
+
+func writeShellScript(t *testing.T, path, content string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write shell script %s: %v", path, err)
+	}
 }

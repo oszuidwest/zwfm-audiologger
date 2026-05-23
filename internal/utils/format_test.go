@@ -1,6 +1,10 @@
 package utils
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestExtensionForCodec(t *testing.T) {
 	tests := []struct {
@@ -28,6 +32,18 @@ func TestExtensionForCodec(t *testing.T) {
 				t.Errorf("extensionForCodec(%q) = %q, want %q", tt.codec, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFormatUsesConfiguredFFprobePath(t *testing.T) {
+	ffprobePath := filepath.Join(t.TempDir(), "fake-ffprobe")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"streams\":[{\"codec_name\":\"opus\"}]}'\n"
+	if err := os.WriteFile(ffprobePath, []byte(script), 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write fake ffprobe: %v", err)
+	}
+
+	if got := Format(ffprobePath, "recording.mkv"); got != ".opus" {
+		t.Fatalf("Format() = %q, want %q", got, ".opus")
 	}
 }
 
