@@ -80,10 +80,7 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 func TestValidateAcceptsConfiguredBinaries(t *testing.T) {
 	t.Parallel()
 
-	cfg := &Config{
-		FFmpegPath:  os.Args[0],
-		FFprobePath: os.Args[0],
-	}
+	cfg := validTestConfig(t)
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
@@ -93,33 +90,47 @@ func TestValidateAcceptsConfiguredBinaries(t *testing.T) {
 func TestValidateRequiresFFmpeg(t *testing.T) {
 	t.Parallel()
 
-	cfg := &Config{
-		FFmpegPath:  "/definitely/missing/ffmpeg",
-		FFprobePath: os.Args[0],
-	}
+	cfg := validTestConfig(t)
+	cfg.FFmpegPath = "/definitely/missing/ffmpeg"
 
 	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate returned nil error")
-	}
-	if !strings.Contains(err.Error(), "ffmpeg binary not found") {
-		t.Fatalf("Validate error = %v, want ffmpeg error", err)
-	}
+	assertErrorContains(t, err, "ffmpeg binary not found", "/definitely/missing/ffmpeg", "ffmpeg_path")
 }
 
 func TestValidateRequiresFFprobe(t *testing.T) {
 	t.Parallel()
 
-	cfg := &Config{
-		FFmpegPath:  os.Args[0],
-		FFprobePath: "/definitely/missing/ffprobe",
-	}
+	cfg := validTestConfig(t)
+	cfg.FFprobePath = "/definitely/missing/ffprobe"
 
 	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate returned nil error")
+	assertErrorContains(t, err, "ffprobe binary not found", "/definitely/missing/ffprobe", "ffprobe_path")
+}
+
+func validTestConfig(t *testing.T) *Config {
+	t.Helper()
+
+	executablePath, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test executable path: %v", err)
 	}
-	if !strings.Contains(err.Error(), "ffprobe binary not found") {
-		t.Fatalf("Validate error = %v, want ffprobe error", err)
+
+	return &Config{
+		FFmpegPath:  executablePath,
+		FFprobePath: executablePath,
+	}
+}
+
+func assertErrorContains(t *testing.T, err error, parts ...string) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	for _, part := range parts {
+		if !strings.Contains(err.Error(), part) {
+			t.Fatalf("expected error to contain %q, got: %v", part, err)
+		}
 	}
 }

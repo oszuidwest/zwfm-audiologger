@@ -75,11 +75,11 @@ func Load(path string) (*Config, error) {
 // Validate checks whether the loaded configuration can be used at runtime.
 func (c *Config) Validate() error {
 	if _, err := exec.LookPath(c.FFmpegPath); err != nil {
-		return fmt.Errorf("ffmpeg binary not found at %q: %w", c.FFmpegPath, err)
+		return fmt.Errorf("ffmpeg binary not found at %q: ensure ffmpeg_path in config.json points to a valid binary: %w", c.FFmpegPath, err)
 	}
 
 	if _, err := exec.LookPath(c.FFprobePath); err != nil {
-		return fmt.Errorf("ffprobe binary not found at %q: %w", c.FFprobePath, err)
+		return fmt.Errorf("ffprobe binary not found at %q: ensure ffprobe_path in config.json points to a valid binary: %w", c.FFprobePath, err)
 	}
 
 	return nil
