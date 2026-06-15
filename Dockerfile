@@ -28,7 +28,7 @@ RUN COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}
     -o audiologger .
 
 # Runtime stage
-FROM alpine:3.23
+FROM alpine:3.24
 
 LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-audiologger"
 LABEL org.opencontainers.image.description="ZuidWest FM audiologger"
