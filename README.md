@@ -168,7 +168,7 @@ go vet ./...
 golangci-lint run --timeout=5m
 ```
 
-Requires Go 1.26.2 or higher and `ffmpeg`/`ffprobe` available in `PATH`.
+Requires Go 1.26.6 or higher and `ffmpeg`/`ffprobe` available in `PATH`.
 
 ## License
 
