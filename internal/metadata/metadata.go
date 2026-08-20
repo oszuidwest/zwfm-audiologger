@@ -55,7 +55,6 @@ func (f *Fetcher) fetchURL(ctx context.Context, url string) ([]byte, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		drainBody(resp.Body)
 		return nil, fmt.Errorf("metadata url returned http status %s", resp.Status)
 	}
 
@@ -64,15 +63,10 @@ func (f *Fetcher) fetchURL(ctx context.Context, url string) ([]byte, error) {
 		return nil, err
 	}
 	if len(body) > maxMetadataResponseBytes {
-		drainBody(resp.Body)
 		return nil, fmt.Errorf("metadata response exceeds %d bytes", maxMetadataResponseBytes)
 	}
 
 	return body, nil
-}
-
-func drainBody(body io.Reader) {
-	_, _ = io.Copy(io.Discard, body)
 }
 
 // fetchRaw retrieves raw content from a URL.

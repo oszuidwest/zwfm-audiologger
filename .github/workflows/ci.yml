@@ -25,5 +25,3 @@ permissions:
 jobs:
   ci:
     uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v2
-    with:
-      golangci-lint-version: v2.12.1
