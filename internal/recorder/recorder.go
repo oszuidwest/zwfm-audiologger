@@ -116,8 +116,6 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	}
 
 	name := opts.name
-	station := opts.station
-	timestamp := opts.timestamp
 
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
@@ -128,9 +126,7 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 			"recordings_dir", m.config.RecordingsDir,
 			"computed_dir", dir,
 		)
-		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, reason)
-		}
+		m.notifyFailure(name, reason)
 		return
 	}
 
@@ -139,22 +135,18 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	if err != nil {
 		reason := fmt.Sprintf("disk space check failed: %v", err)
 		slog.Error("skipping recording", "station", name, "reason", reason)
-		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, reason)
-		}
+		m.notifyFailure(name, reason)
 		return
 	}
 	if available < constants.MinDiskSpaceBytes {
 		reason := fmt.Sprintf("insufficient disk space: %d bytes available, %d required", available, constants.MinDiskSpaceBytes)
 		slog.Error("skipping recording", "station", name, "reason", reason)
-		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, reason)
-		}
+		m.notifyFailure(name, reason)
 		return
 	}
 
 	// Use .mkv extension for temporary files - supports any audio codec
-	tempFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, ".mkv")
+	tempFile := utils.RecordingPath(m.config.RecordingsDir, name, opts.timestamp, ".mkv")
 
 	slog.Info("Recording started", "station", name, "file", tempFile)
 
@@ -162,7 +154,7 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	recordCtx, recordCancel := context.WithTimeout(ctx, opts.timeout)
 	defer recordCancel()
 
-	cmd := m.recordCommand(recordCtx, station.StreamURL, opts.duration, tempFile)
+	cmd := m.recordCommand(recordCtx, opts.station.StreamURL, opts.duration, tempFile)
 	slog.Debug("FFmpeg args", "args", cmd.Args)
 
 	// Capture both stdout and stderr
@@ -170,7 +162,7 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	recordCancel() // Explicitly cancel context after FFmpeg completes
 
 	if err != nil {
-		m.handleRecordingFailure(ctx, name, station, tempFile, cmd.Args, output, err)
+		m.handleRecordingFailure(ctx, name, opts.station, tempFile, cmd.Args, output, err)
 		return
 	}
 
@@ -179,7 +171,7 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	if !ok {
 		return
 	}
-	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
+	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, opts.timestamp, format)
 
 	if !m.remux(ctx, name, tempFile, finalFile) {
 		return
@@ -196,10 +188,17 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	// sidecar immediately so scanUnvalidated does not re-queue the file on restart.
 	if m.validator != nil {
 		if opts.skipValidation {
-			m.validator.MarkSkipped(finalFile, name, timestamp)
+			m.validator.MarkSkipped(finalFile, name, opts.timestamp)
 		} else {
-			m.validator.Enqueue(finalFile, name, timestamp)
+			m.validator.Enqueue(finalFile, name, opts.timestamp)
 		}
+	}
+}
+
+// notifyFailure sends a recording-failure alert when a notifier is configured.
+func (m *Manager) notifyFailure(name, reason string) {
+	if m.notifier != nil {
+		m.notifier.NotifyRecordingFailure(name, reason)
 	}
 }
 
@@ -225,9 +224,7 @@ func (m *Manager) detectFormat(ctx context.Context, name, tempFile string) (stri
 		"temp_file", tempFile,
 		"error", err,
 	)
-	if m.notifier != nil {
-		m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("format detection failed: %v", err))
-	}
+	m.notifyFailure(name, fmt.Sprintf("format detection failed: %v", err))
 	return "", false
 }
 
@@ -259,17 +256,18 @@ func (m *Manager) remux(ctx context.Context, name, tempFile, finalFile string) b
 		"error", err,
 		"remux_output", truncateOutput(output),
 	)
-	if m.notifier != nil {
-		m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("remux failed: %v", err))
-	}
+	m.notifyFailure(name, fmt.Sprintf("remux failed: %v", err))
 	return false
 }
 
-// truncateOutput limits command output to 500 bytes for logging.
+// maxLoggedOutputBytes caps command output included in log messages.
+const maxLoggedOutputBytes = 500
+
+// truncateOutput limits command output to maxLoggedOutputBytes for logging.
 func truncateOutput(output []byte) string {
 	s := string(output)
-	if len(s) > 500 {
-		return s[:500] + "... (truncated)"
+	if len(s) > maxLoggedOutputBytes {
+		return s[:maxLoggedOutputBytes] + "... (truncated)"
 	}
 	return s
 }
@@ -308,9 +306,7 @@ func (m *Manager) handleRecordingFailure(
 		"ffmpeg_output", truncateOutput(output),
 	)
 
-	if m.notifier != nil {
-		m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
-	}
+	m.notifyFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
 
 	// Clean up temp file if it was created
 	if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {

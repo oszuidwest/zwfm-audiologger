@@ -151,11 +151,11 @@ func (s *Scheduler) forEachStationAsync(ctx context.Context, action string, fn f
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					slog.Error("panic in "+action, "station", name, "panic", r, "stack", string(debug.Stack()))
+					slog.Error("panic in station task", "action", action, "station", name, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
 			if ctx.Err() != nil {
-				slog.Info(action+" skipped because scheduler context is done", "station", name, "reason", ctx.Err())
+				slog.Info("station task skipped because scheduler context is done", "action", action, "station", name, "reason", ctx.Err())
 				return
 			}
 			fn(name, &station)

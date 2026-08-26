@@ -175,6 +175,16 @@ func (m *Manager) scanUnvalidated() {
 	slog.Info("Finished scanning for unvalidated recordings")
 }
 
+// interrupted reports whether the context was cancelled mid-validation, logging
+// the interruption so no sidecar is written for a partial analysis.
+func interrupted(ctx context.Context, filePath string) bool {
+	if ctx.Err() == nil {
+		return false
+	}
+	slog.Info("Validation interrupted", "file", filePath, "reason", ctx.Err())
+	return true
+}
+
 // processJob validates a single recording.
 func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 	slog.Info("Validating recording", "file", job.FilePath, "station", job.Station)
@@ -188,8 +198,7 @@ func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 
 	// Analyze duration.
 	duration, err := m.analyzeDuration(ctx, job.FilePath)
-	if ctx.Err() != nil {
-		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+	if interrupted(ctx, job.FilePath) {
 		return
 	}
 	if err != nil {
@@ -204,8 +213,7 @@ func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 
 	// Analyze silence.
 	maxSilence, err := m.analyzeSilence(ctx, job.FilePath)
-	if ctx.Err() != nil {
-		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+	if interrupted(ctx, job.FilePath) {
 		return
 	}
 	if err != nil {
@@ -224,8 +232,7 @@ func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 
 	// Analyze loops.
 	loopPercent, err := m.analyzeLoops(ctx, job.FilePath)
-	if ctx.Err() != nil {
-		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+	if interrupted(ctx, job.FilePath) {
 		return
 	}
 	if err != nil {
@@ -237,11 +244,6 @@ func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 				"loop detected: %.1f%% (max: %.1f%%)", loopPercent, m.config.Validation.MaxLoopPercent,
 			))
 		}
-	}
-
-	if ctx.Err() != nil {
-		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
-		return
 	}
 
 	// Save validation result.
