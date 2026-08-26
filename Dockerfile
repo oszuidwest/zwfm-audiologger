@@ -1,8 +1,8 @@
 # Build stage
-FROM golang:1.27.0-alpine3.23 AS builder
+FROM golang:1.27.0-alpine3.24 AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache ca-certificates
 
 # Set working directory
 WORKDIR /app
@@ -14,16 +14,14 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build arguments. COMMIT and BUILD_TIME are normally provided by CI; for local
-# builds without --build-arg they fall back to git rev-parse and date below.
+# Build arguments. CI provides release metadata explicitly; deterministic
+# fallbacks keep local builds reproducible when no build arguments are supplied.
 ARG VERSION=dev
-ARG COMMIT=
-ARG BUILD_TIME=
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
 
 # Build the application.
-RUN COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}" && \
-    BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
-    CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.Commit=${COMMIT}" \
     -o audiologger .
 
@@ -40,32 +38,29 @@ RUN apk --no-cache upgrade && \
     ca-certificates \
     tzdata
 
-# Create non-root user
+# Create the non-root user and its writable data directories.
 RUN addgroup -g 1001 audiologger && \
-    adduser -u 1001 -G audiologger -s /bin/sh -D audiologger
+    adduser -u 1001 -G audiologger -s /sbin/nologin -D audiologger && \
+    install -d -o audiologger -g audiologger -m 0755 /var/audio /var/log
 
 # Set working directory
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/audiologger .
+COPY --from=builder --chown=0:0 --chmod=0555 /app/audiologger .
 
 # Copy configuration template
-COPY config.json .
-
-# Create directories with proper permissions
-RUN mkdir -p /var/audio /var/log && \
-    chown -R audiologger:audiologger /var/audio /var/log /app
+COPY --chown=0:0 --chmod=0444 config.json .
 
 # Switch to non-root user
-USER audiologger
+USER 1001:1001
 
 # Expose HTTP port
 EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ["wget", "--no-verbose", "--tries=1", "--timeout=3", "-O", "/dev/null", "http://localhost:8080/health"]
+    CMD ["wget", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
 
 # Default command
 CMD ["./audiologger"]
