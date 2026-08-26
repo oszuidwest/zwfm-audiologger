@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
@@ -33,27 +32,27 @@ type Manager struct {
 	config  *config.Config
 	queue   chan ValidationJob
 	alerter *Alerter
-	ctx     context.Context
-	cancel  context.CancelFunc
 }
 
-// New creates a new validation manager.
-func New(cfg *config.Config) *Manager {
-	ctx, cancel := context.WithCancel(context.Background())
-
+// New creates a new validation manager. It returns an error when alerting is
+// enabled but misconfigured, so startup fails fast instead of running with
+// alerts silently disabled.
+func New(cfg *config.Config) (*Manager, error) {
 	m := &Manager{
 		config: cfg,
 		queue:  make(chan ValidationJob, constants.ValidationQueueSize),
-		ctx:    ctx,
-		cancel: cancel,
 	}
 
 	// Initialize alerter if configured.
 	if cfg.Validation != nil && cfg.Validation.Alert != nil && cfg.Validation.Alert.Enabled {
-		m.alerter = NewAlerter(cfg.Validation.Alert, cfg.Validation.StationRecipients)
+		alerter, err := NewAlerter(cfg.Validation.Alert, cfg.Validation.StationRecipients)
+		if err != nil {
+			return nil, fmt.Errorf("alert config: %w", err)
+		}
+		m.alerter = alerter
 	}
 
-	return m
+	return m, nil
 }
 
 // Start begins the validation worker and scans for unvalidated files.
@@ -68,19 +67,11 @@ func (m *Manager) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			slog.Info("Validator shutting down")
-			m.cancel()
-			return nil
-		case <-m.ctx.Done():
 			return nil
 		case job := <-m.queue:
-			m.processJob(job)
+			m.processJob(ctx, job)
 		}
 	}
-}
-
-// Stop gracefully stops the validator.
-func (m *Manager) Stop() {
-	m.cancel()
 }
 
 // NotifyRecordingFailure sends an alert when a recording fails to be created.
@@ -185,18 +176,22 @@ func (m *Manager) scanUnvalidated() {
 }
 
 // processJob validates a single recording.
-func (m *Manager) processJob(job ValidationJob) {
+func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 	slog.Info("Validating recording", "file", job.FilePath, "station", job.Station)
 
 	result := &ValidationResult{
 		Station:     job.Station,
 		Timestamp:   job.Timestamp,
-		ValidatedAt: time.Now(),
+		ValidatedAt: utils.Now(),
 		Valid:       true,
 	}
 
 	// Analyze duration.
-	duration, err := m.analyzeDuration(m.ctx, job.FilePath)
+	duration, err := m.analyzeDuration(ctx, job.FilePath)
+	if ctx.Err() != nil {
+		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+		return
+	}
 	if err != nil {
 		m.recordAnalysisError(result, "duration", job.FilePath, err)
 	} else {
@@ -208,7 +203,11 @@ func (m *Manager) processJob(job ValidationJob) {
 	}
 
 	// Analyze silence.
-	maxSilence, err := m.analyzeSilence(m.ctx, job.FilePath)
+	maxSilence, err := m.analyzeSilence(ctx, job.FilePath)
+	if ctx.Err() != nil {
+		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+		return
+	}
 	if err != nil {
 		m.recordAnalysisError(result, "silence", job.FilePath, err)
 	} else {
@@ -224,7 +223,11 @@ func (m *Manager) processJob(job ValidationJob) {
 	}
 
 	// Analyze loops.
-	loopPercent, err := m.analyzeLoops(m.ctx, job.FilePath)
+	loopPercent, err := m.analyzeLoops(ctx, job.FilePath)
+	if ctx.Err() != nil {
+		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+		return
+	}
 	if err != nil {
 		m.recordAnalysisError(result, "loop", job.FilePath, err)
 	} else {
@@ -234,6 +237,11 @@ func (m *Manager) processJob(job ValidationJob) {
 				"loop detected: %.1f%% (max: %.1f%%)", loopPercent, m.config.Validation.MaxLoopPercent,
 			))
 		}
+	}
+
+	if ctx.Err() != nil {
+		slog.Info("Validation interrupted", "file", job.FilePath, "reason", ctx.Err())
+		return
 	}
 
 	// Save validation result.
@@ -247,7 +255,7 @@ func (m *Manager) processJob(job ValidationJob) {
 
 	// Send alert if invalid and alerter is configured.
 	if !result.Valid && m.alerter != nil {
-		if err := m.alerter.Send(m.ctx, result); err != nil {
+		if err := m.alerter.Send(ctx, result); err != nil {
 			slog.Error("failed to send validation alert", "error", err)
 		}
 	}

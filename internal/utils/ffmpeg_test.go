@@ -22,7 +22,7 @@ func TestFFmpegCommandPaths(t *testing.T) {
 		},
 		{
 			name: "remux",
-			cmd:  RemuxCommand("/custom/ffmpeg", "in.mkv", "out.mp3"),
+			cmd:  RemuxCommand(t.Context(), "/custom/ffmpeg", "in.mkv", "out.mp3"),
 			want: "/custom/ffmpeg",
 		},
 		{

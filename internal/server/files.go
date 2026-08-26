@@ -15,8 +15,8 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/utils"
 )
 
-// FileInfo represents a file or directory in the listing.
-type FileInfo struct {
+// fileInfo represents a file or directory in the listing.
+type fileInfo struct {
 	Name    string
 	Size    string
 	ModTime string
@@ -87,11 +87,11 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fs
 	if urlPath != "/" {
 		capacity++ // Add space for parent directory
 	}
-	files := make([]FileInfo, 0, capacity)
+	files := make([]fileInfo, 0, capacity)
 
 	// Add parent directory link if not at root
 	if urlPath != "/" {
-		files = append(files, FileInfo{
+		files = append(files, fileInfo{
 			Name:  "../",
 			IsDir: true,
 			URL:   path.Dir("/recordings"+urlPath) + "/",
@@ -110,26 +110,26 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fs
 			continue
 		}
 
-		fileInfo := FileInfo{
+		fi := fileInfo{
 			Name:    entry.Name(),
 			IsDir:   entry.IsDir(),
 			ModTime: info.ModTime().Format(time.DateTime),
 		}
 
 		if entry.IsDir() {
-			fileInfo.Name += "/"
-			fileInfo.URL = "/recordings" + path.Join(urlPath, entry.Name()) + "/"
-			fileInfo.Size = "-"
+			fi.Name += "/"
+			fi.URL = "/recordings" + path.Join(urlPath, entry.Name()) + "/"
+			fi.Size = "-"
 		} else {
-			fileInfo.URL = "/recordings" + path.Join(urlPath, entry.Name())
-			fileInfo.Size = humanize.Bytes(uint64(info.Size())) //nolint:gosec // File sizes are always non-negative
+			fi.URL = "/recordings" + path.Join(urlPath, entry.Name())
+			fi.Size = humanize.Bytes(uint64(info.Size())) //nolint:gosec // File sizes are always non-negative
 		}
 
-		files = append(files, fileInfo)
+		files = append(files, fi)
 	}
 
 	// Sort files (directories first, then by name)
-	slices.SortFunc(files, func(a, b FileInfo) int {
+	slices.SortFunc(files, func(a, b fileInfo) int {
 		if a.IsDir != b.IsDir {
 			if a.IsDir {
 				return -1
@@ -144,7 +144,7 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fs
 
 	data := struct {
 		Path  string
-		Files []FileInfo
+		Files []fileInfo
 	}{
 		Path:  urlPath,
 		Files: files,

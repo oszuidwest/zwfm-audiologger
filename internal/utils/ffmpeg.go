@@ -32,9 +32,9 @@ func RecordCommand(ctx context.Context, ffmpegPath, streamURL string, duration t
 // RemuxCommand creates an FFmpeg command for remuxing a file to the proper container format
 // based on the output file extension, using stream copy for fast, lossless operation.
 // ffmpegPath must be a resolvable executable; the caller is responsible for validation.
-func RemuxCommand(ffmpegPath, inputFile, outputFile string) *exec.Cmd {
+func RemuxCommand(ctx context.Context, ffmpegPath, inputFile, outputFile string) *exec.Cmd {
 	//nolint:gosec // ffmpegPath comes from operator-controlled config; args are internal file paths.
-	return exec.Command(ffmpegPath,
+	return exec.CommandContext(ctx, ffmpegPath,
 		"-i", inputFile,
 		"-c", "copy",
 		"-y", outputFile,

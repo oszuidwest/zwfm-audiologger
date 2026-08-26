@@ -49,6 +49,11 @@ const (
 	// ValidationAnalysisTimeout is the maximum time allowed for validation analysis.
 	ValidationAnalysisTimeout = 10 * time.Minute
 
+	// FormatDetectionTimeout is the maximum time allowed for ffprobe format detection.
+	FormatDetectionTimeout = 1 * time.Minute
+	// RemuxTimeout is the maximum time allowed for remuxing a completed recording.
+	RemuxTimeout = 5 * time.Minute
+
 	// HTTPClientTimeout is the default timeout for HTTP client requests.
 	HTTPClientTimeout = 30 * time.Second
 	// AlertRetryMax is the maximum number of retry attempts for alert sending.

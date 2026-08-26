@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,8 +9,8 @@ import (
 	"strings"
 )
 
-// ProbeResult holds the ffprobe output structure.
-type ProbeResult struct {
+// probeResult holds the ffprobe output structure.
+type probeResult struct {
 	Streams []struct {
 		CodecName string `json:"codec_name"`
 	} `json:"streams"`
@@ -18,10 +19,10 @@ type ProbeResult struct {
 // Format uses ffprobe to detect the actual format of a recorded audio file.
 // It returns the appropriate file extension based on the detected codec.
 // ffprobePath must be a resolvable executable; the caller is responsible for validation.
-func Format(ffprobePath, filePath string) (string, error) {
+func Format(ctx context.Context, ffprobePath, filePath string) (string, error) {
 	// Run ffprobe on the file
 	//nolint:gosec // ffprobePath comes from operator-controlled config; args are internal file paths.
-	cmd := exec.Command(ffprobePath,
+	cmd := exec.CommandContext(ctx, ffprobePath,
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
@@ -34,7 +35,7 @@ func Format(ffprobePath, filePath string) (string, error) {
 		return "", fmt.Errorf("run ffprobe: %w", err)
 	}
 
-	var result ProbeResult
+	var result probeResult
 	if err := json.Unmarshal(output, &result); err != nil {
 		return "", fmt.Errorf("parse ffprobe output: %w", err)
 	}

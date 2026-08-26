@@ -38,14 +38,14 @@ type Alerter struct {
 	config            *config.AlertConfig
 	stationRecipients map[string][]string
 	httpClient        *http.Client
-	fromAddress       string
 }
 
-// NewAlerter creates a new MS Graph email alerter.
-func NewAlerter(cfg *config.AlertConfig, stationRecipients map[string][]string) *Alerter {
+// NewAlerter creates a new MS Graph email alerter. It returns an error when the
+// Graph credentials are missing or malformed, so that a misconfigured alerter
+// fails at startup instead of being silently disabled.
+func NewAlerter(cfg *config.AlertConfig, stationRecipients map[string][]string) (*Alerter, error) {
 	if err := validateCredentials(cfg); err != nil {
-		slog.Error("invalid graph credentials", "error", err)
-		return nil
+		return nil, err
 	}
 
 	// Configure OAuth2 client credentials flow.
@@ -65,8 +65,7 @@ func NewAlerter(cfg *config.AlertConfig, stationRecipients map[string][]string) 
 		config:            cfg,
 		stationRecipients: stationRecipients,
 		httpClient:        httpClient,
-		fromAddress:       cfg.SenderEmail,
-	}
+	}, nil
 }
 
 // validateCredentials checks that required credential fields are present and valid.
@@ -253,7 +252,7 @@ func buildRecipientList(recipients []string) []graphRecipient {
 
 // sendWithRetry sends an email with automatic retries for transient failures.
 func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) error {
-	apiURL := fmt.Sprintf("%s/users/%s/sendMail", graphBaseURL, url.PathEscape(a.fromAddress))
+	apiURL := fmt.Sprintf("%s/users/%s/sendMail", graphBaseURL, url.PathEscape(a.config.SenderEmail))
 
 	jsonData, err := json.Marshal(message)
 	if err != nil {

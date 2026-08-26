@@ -12,24 +12,21 @@ import (
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
-	"github.com/oszuidwest/zwfm-audiologger/internal/recorder"
 )
 
 // Server handles HTTP requests for recording control.
 type Server struct {
 	config        *config.Config
-	recorder      *recorder.Manager
 	mux           *http.ServeMux
 	accessLogger  *slog.Logger
 	accessLogFile *os.File // nil when falling back to stdout.
 }
 
 // New creates a new HTTP server.
-func New(cfg *config.Config, rec *recorder.Manager) *Server {
+func New(cfg *config.Config) *Server {
 	s := &Server{
-		config:   cfg,
-		recorder: rec,
-		mux:      http.NewServeMux(),
+		config: cfg,
+		mux:    http.NewServeMux(),
 	}
 
 	// Open access log file; fall back to stdout on failure.

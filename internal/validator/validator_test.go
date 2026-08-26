@@ -1,10 +1,12 @@
 package validator_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
@@ -19,8 +21,10 @@ func TestMarkSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := validator.New(&config.Config{RecordingsDir: dir})
-	t.Cleanup(m.Stop)
+	m, err := validator.New(&config.Config{RecordingsDir: dir})
+	if err != nil {
+		t.Fatalf("validator.New: %v", err)
+	}
 
 	const station = "teststation"
 	const timestamp = "2026-04-28-12"
@@ -55,4 +59,70 @@ func TestMarkSkipped(t *testing.T) {
 	if result.Timestamp != timestamp {
 		t.Errorf("sidecar timestamp = %q, want %q", result.Timestamp, timestamp)
 	}
+}
+
+func TestStartCancelsInFlightValidationWithoutSidecar(t *testing.T) {
+	dir := t.TempDir()
+	ffprobePath := filepath.Join(dir, "ffprobe")
+	startedPath := filepath.Join(dir, "started")
+	script := "#!/bin/sh\n: > \"" + startedPath + "\"\nexec sleep 30\n"
+	if err := os.WriteFile(ffprobePath, []byte(script), 0o700); err != nil { //nolint:gosec // Test executable is written under t.TempDir().
+		t.Fatalf("write ffprobe script: %v", err)
+	}
+
+	cfg := &config.Config{
+		RecordingsDir: dir,
+		FFmpegPath:    ffprobePath,
+		FFprobePath:   ffprobePath,
+		Stations:      map[string]config.Station{},
+		Validation: &config.ValidationConfig{
+			MinDurationSecs:    3500,
+			SilenceThresholdDB: -40,
+			MaxSilenceSecs:     5,
+			MaxLoopPercent:     30,
+		},
+	}
+	m, err := validator.New(cfg)
+	if err != nil {
+		t.Fatalf("validator.New: %v", err)
+	}
+	audioPath := filepath.Join(dir, "2026-04-28-12.mp3")
+	m.Enqueue(audioPath, "teststation", "2026-04-28-12")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- m.Start(ctx)
+	}()
+
+	waitForFile(t, startedPath)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not cancel the in-flight validation")
+	}
+
+	sidecarPath := utils.SidecarPath(audioPath, constants.ValidationFileSuffix)
+	if _, err := os.Stat(sidecarPath); !os.IsNotExist(err) {
+		t.Fatalf("validation sidecar exists after interrupted analysis: %v", err)
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("file %s was not created", path)
 }

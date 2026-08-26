@@ -2,7 +2,6 @@ package utils
 
 import (
 	"log/slog"
-	"sync"
 	"time"
 )
 
@@ -13,12 +12,9 @@ const (
 	TestTimestampFormat = "2006-01-02-15-04-05"
 )
 
-var (
-	// AppTimezone holds the application timezone location.
-	AppTimezone *time.Location = time.UTC
-	// timezoneMutex protects AppTimezone reads/writes.
-	timezoneMutex sync.RWMutex
-)
+// AppTimezone holds the application timezone location. SetTimezone must be
+// called during application startup, before any goroutines use this value.
+var AppTimezone = time.UTC
 
 // SetTimezone sets the application timezone from a timezone string.
 // Falls back to UTC and logs an error if the timezone string is invalid.
@@ -32,17 +28,12 @@ func SetTimezone(timezoneStr string) {
 		slog.Info("Timezone set", "timezone", timezoneStr)
 	}
 
-	timezoneMutex.Lock()
 	AppTimezone = loc
-	timezoneMutex.Unlock()
 }
 
 // Now returns the current time in the configured timezone.
 func Now() time.Time {
-	timezoneMutex.RLock()
-	tz := AppTimezone
-	timezoneMutex.RUnlock()
-	return time.Now().In(tz)
+	return time.Now().In(AppTimezone)
 }
 
 // HourlyTimestamp returns the current time formatted as an hourly timestamp in the configured timezone.

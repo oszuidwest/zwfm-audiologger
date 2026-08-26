@@ -118,9 +118,6 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	name := opts.name
 	station := opts.station
 	timestamp := opts.timestamp
-	duration := opts.duration
-	timeout := opts.timeout
-	skipValidation := opts.skipValidation
 
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
@@ -162,10 +159,10 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	slog.Info("Recording started", "station", name, "file", tempFile)
 
 	// Bound recording to both the requested duration timeout and caller cancellation.
-	recordCtx, recordCancel := context.WithTimeout(ctx, timeout)
+	recordCtx, recordCancel := context.WithTimeout(ctx, opts.timeout)
 	defer recordCancel()
 
-	cmd := m.recordCommand(recordCtx, station.StreamURL, duration, tempFile)
+	cmd := m.recordCommand(recordCtx, station.StreamURL, opts.duration, tempFile)
 	slog.Debug("FFmpeg args", "args", cmd.Args)
 
 	// Capture both stdout and stderr
@@ -177,47 +174,14 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 		return
 	}
 
-	// Detect format from the recorded file and remux to proper container
-	format, err := utils.Format(m.config.FFprobePath, tempFile)
-	if err != nil {
-		reason := fmt.Sprintf("format detection failed: %v", err)
-		slog.Error("failed to detect recording format",
-			"station", name,
-			"temp_file", tempFile,
-			"error", err,
-		)
-		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, reason)
-		}
+	// Detect format from the recorded file and remux to proper container.
+	format, ok := m.detectFormat(ctx, name, tempFile)
+	if !ok {
 		return
 	}
 	finalFile := utils.RecordingPath(m.config.RecordingsDir, name, timestamp, format)
 
-	// Remux the .mkv file to proper container format
-	remuxCmd := utils.RemuxCommand(m.config.FFmpegPath, tempFile, finalFile)
-	remuxOutput, err := remuxCmd.CombinedOutput()
-	if err != nil {
-		// Limit output to first 500 bytes to avoid excessive logging
-		outputStr := string(remuxOutput)
-		if len(outputStr) > 500 {
-			outputStr = outputStr[:500] + "... (truncated)"
-		}
-		slog.Error("failed to remux recording",
-			"station", name,
-			"temp_file", tempFile,
-			"final_file", finalFile,
-			"error", err,
-			"remux_output", outputStr,
-		)
-
-		if m.notifier != nil {
-			m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("remux failed: %v", err))
-		}
-
-		// Clean up temp file when remux fails
-		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
-			slog.Warn("failed to clean up temp file after remux error", "file", tempFile, "error", err)
-		}
+	if !m.remux(ctx, name, tempFile, finalFile) {
 		return
 	}
 
@@ -231,12 +195,83 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	// For full recordings, enqueue for validation. For catchup recordings, write a
 	// sidecar immediately so scanUnvalidated does not re-queue the file on restart.
 	if m.validator != nil {
-		if skipValidation {
+		if opts.skipValidation {
 			m.validator.MarkSkipped(finalFile, name, timestamp)
 		} else {
 			m.validator.Enqueue(finalFile, name, timestamp)
 		}
 	}
+}
+
+// detectFormat probes the recorded temp file for its audio codec and returns
+// the matching file extension. It returns false when detection fails or is
+// interrupted by shutdown; the temp file is kept in both cases.
+func (m *Manager) detectFormat(ctx context.Context, name, tempFile string) (string, bool) {
+	probeCtx, cancel := context.WithTimeout(ctx, constants.FormatDetectionTimeout)
+	defer cancel()
+
+	format, err := utils.Format(probeCtx, m.config.FFprobePath, tempFile)
+	if err == nil {
+		return format, true
+	}
+
+	if ctx.Err() != nil {
+		slog.Info("format detection stopped by context cancellation; keeping temp file",
+			"station", name, "temp_file", tempFile, "reason", ctx.Err())
+		return "", false
+	}
+	slog.Error("failed to detect recording format",
+		"station", name,
+		"temp_file", tempFile,
+		"error", err,
+	)
+	if m.notifier != nil {
+		m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("format detection failed: %v", err))
+	}
+	return "", false
+}
+
+// remux converts the temp recording into its final container. On any failure -
+// remux error, timeout, or shutdown - it removes the partial output file and
+// keeps the complete temp recording so the captured audio is not lost.
+func (m *Manager) remux(ctx context.Context, name, tempFile, finalFile string) bool {
+	remuxCtx, cancel := context.WithTimeout(ctx, constants.RemuxTimeout)
+	defer cancel()
+
+	cmd := utils.RemuxCommand(remuxCtx, m.config.FFmpegPath, tempFile, finalFile)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return true
+	}
+
+	if rmErr := os.Remove(finalFile); rmErr != nil && !os.IsNotExist(rmErr) {
+		slog.Warn("failed to remove partial remux output", "file", finalFile, "error", rmErr)
+	}
+	if ctx.Err() != nil {
+		slog.Info("remux stopped by context cancellation; keeping temp file",
+			"station", name, "temp_file", tempFile, "reason", ctx.Err())
+		return false
+	}
+	slog.Error("failed to remux recording; keeping temp file",
+		"station", name,
+		"temp_file", tempFile,
+		"final_file", finalFile,
+		"error", err,
+		"remux_output", truncateOutput(output),
+	)
+	if m.notifier != nil {
+		m.notifier.NotifyRecordingFailure(name, fmt.Sprintf("remux failed: %v", err))
+	}
+	return false
+}
+
+// truncateOutput limits command output to 500 bytes for logging.
+func truncateOutput(output []byte) string {
+	s := string(output)
+	if len(s) > 500 {
+		return s[:500] + "... (truncated)"
+	}
+	return s
 }
 
 func (m *Manager) handleRecordingFailure(
@@ -260,11 +295,6 @@ func (m *Manager) handleRecordingFailure(
 		return
 	}
 
-	// Limit output to first 500 bytes to avoid excessive logging
-	outputStr := string(output)
-	if len(outputStr) > 500 {
-		outputStr = outputStr[:500] + "... (truncated)"
-	}
 	ffmpegCommand := ""
 	if len(commandArgs) > 1 {
 		ffmpegCommand = strings.Join(commandArgs[1:], " ")
@@ -275,7 +305,7 @@ func (m *Manager) handleRecordingFailure(
 		"ffmpeg_command", ffmpegCommand,
 		"stream_url", station.StreamURL,
 		"output_file", tempFile,
-		"ffmpeg_output", outputStr,
+		"ffmpeg_output", truncateOutput(output),
 	)
 
 	if m.notifier != nil {

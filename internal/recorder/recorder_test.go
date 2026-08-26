@@ -215,6 +215,64 @@ exit 0
 	}
 }
 
+func TestRecordKeepsTempFileAndRemovesPartialOutputWhenRemuxFails(t *testing.T) {
+	recordingsDir := t.TempDir()
+	binDir := t.TempDir()
+	ffprobePath := filepath.Join(binDir, "ffprobe")
+	ffmpegPath := filepath.Join(binDir, "ffmpeg")
+
+	writeShellScript(t, ffprobePath, `#!/bin/sh
+printf '%s\n' '{"streams":[{"codec_name":"aac"}]}'
+`)
+	// Write a partial output file, then fail, like an interrupted remux would.
+	writeShellScript(t, ffmpegPath, `#!/bin/sh
+while [ "$#" -gt 1 ]; do
+	shift
+done
+printf partial > "$1"
+exit 1
+`)
+
+	notifier := &recordingFailureNotifier{}
+	manager := New(&config.Config{
+		RecordingsDir: recordingsDir,
+		FFmpegPath:    ffmpegPath,
+		FFprobePath:   ffprobePath,
+	}, nil, notifier)
+	manager.recordCommand = func(ctx context.Context, _ string, _ time.Duration, outputFile string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestRecorderHelperProcess", "--", outputFile) //nolint:gosec // Test helper process and temp output path are controlled by this test.
+		cmd.Env = append(os.Environ(), "GO_WANT_RECORDER_WRITE_HELPER_PROCESS=1")
+		return cmd
+	}
+	manager.availableBytes = func(string) (uint64, error) {
+		return constants.MinDiskSpaceBytes, nil
+	}
+
+	const timestamp = "2026-04-30-23"
+	manager.record(context.Background(), recordOptions{
+		name:      "station",
+		station:   &config.Station{StreamURL: "https://stream.example.com/station.aac"},
+		timestamp: timestamp,
+		duration:  time.Second,
+		timeout:   5 * time.Second,
+	})
+
+	if got := notifier.calls.Load(); got != 1 {
+		t.Fatalf("NotifyRecordingFailure calls = %d, want 1", got)
+	}
+	if reason := notifier.lastReason(); !strings.Contains(reason, "remux failed") {
+		t.Fatalf("NotifyRecordingFailure reason = %q, want remux failure", reason)
+	}
+	tempFile := utils.RecordingPath(recordingsDir, "station", timestamp, ".mkv")
+	if _, err := os.Stat(tempFile); err != nil {
+		t.Fatalf("temporary recording was not kept after remux failure: %v", err)
+	}
+	finalFile := utils.RecordingPath(recordingsDir, "station", timestamp, ".aac")
+	if _, err := os.Stat(finalFile); !os.IsNotExist(err) {
+		t.Fatalf("partial remux output was not removed; stat error: %v", err)
+	}
+}
+
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
 

@@ -65,23 +65,14 @@ func main() {
 	// Set the timezone from config
 	utils.SetTimezone(cfg.Timezone)
 
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Setup signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigChan
-		slog.Info("Shutting down...")
-		cancel()
-	}()
-
 	// Initialize validator if enabled.
 	var validatorManager *validator.Manager
 	if cfg.Validation != nil && cfg.Validation.Enabled {
-		validatorManager = validator.New(cfg)
+		validatorManager, err = validator.New(cfg)
+		if err != nil {
+			slog.Error("invalid validation config", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	// Build non-nil interface values only when the validator is active. Passing a
@@ -104,12 +95,17 @@ func main() {
 		return
 	}
 
+	// Create a context that is cancelled on graceful-shutdown signals. Created
+	// after all startup validation so no os.Exit call can skip the deferred stop.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	// Start components concurrently using goroutines
 	var wg sync.WaitGroup
 
 	// Start HTTP server for status and file browsing
 	wg.Go(func() {
-		srv := server.New(cfg, recorderManager)
+		srv := server.New(cfg)
 		if err := srv.Start(ctx); err != nil {
 			slog.Error("HTTP server error", "error", err)
 		}

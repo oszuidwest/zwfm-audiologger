@@ -125,33 +125,41 @@ func (s *Scheduler) startCatchupRecordings(ctx context.Context) {
 		"elapsed_secs", 3600-remainingSecs,
 		"remaining_secs", remainingSecs)
 
+	s.forEachStationAsync(ctx, "catchup recording", func(stationName string, stationCfg *config.Station) {
+		dir := filepath.Join(s.config.RecordingsDir, stationName)
+		existing, err := existingAudioFile(dir, timestamp)
+		if err != nil {
+			slog.Error("failed to check for existing recordings, skipping catchup",
+				"station", stationName, "dir", dir, "error", err)
+			return
+		}
+		if existing != "" {
+			slog.Info("Catchup skipped, recording already exists",
+				"station", stationName, "file", existing)
+			return
+		}
+
+		s.recorder.Catchup(ctx, stationName, stationCfg, timestamp, remainingSecs)
+	})
+}
+
+// forEachStationAsync runs fn for every configured station in its own goroutine,
+// with panic recovery and a context-cancellation check. action names the
+// operation in log messages.
+func (s *Scheduler) forEachStationAsync(ctx context.Context, action string, fn func(name string, station *config.Station)) {
 	for name, station := range s.config.Stations {
-		go func(stationName string, stationCfg *config.Station) {
+		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					slog.Error("panic in catchup recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
+					slog.Error("panic in "+action, "station", name, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
 			if ctx.Err() != nil {
-				slog.Info("catchup recording skipped because scheduler context is done", "station", stationName, "reason", ctx.Err())
+				slog.Info(action+" skipped because scheduler context is done", "station", name, "reason", ctx.Err())
 				return
 			}
-
-			dir := filepath.Join(s.config.RecordingsDir, stationName)
-			existing, err := existingAudioFile(dir, timestamp)
-			if err != nil {
-				slog.Error("failed to check for existing recordings, skipping catchup",
-					"station", stationName, "dir", dir, "error", err)
-				return
-			}
-			if existing != "" {
-				slog.Info("Catchup skipped, recording already exists",
-					"station", stationName, "file", existing)
-				return
-			}
-
-			s.recorder.Catchup(ctx, stationName, stationCfg, timestamp, remainingSecs)
-		}(name, &station)
+			fn(name, &station)
+		}()
 	}
 }
 
@@ -162,20 +170,9 @@ func (s *Scheduler) runAllRecordings(ctx context.Context) {
 		return
 	}
 
-	for name, station := range s.config.Stations {
-		go func(stationName string, stationConfig *config.Station) {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("panic in recording", "station", stationName, "panic", r, "stack", string(debug.Stack()))
-				}
-			}()
-			if ctx.Err() != nil {
-				slog.Info("scheduled recording skipped because scheduler context is done", "station", stationName, "reason", ctx.Err())
-				return
-			}
-			s.recorder.Scheduled(ctx, stationName, stationConfig)
-		}(name, &station)
-	}
+	s.forEachStationAsync(ctx, "scheduled recording", func(stationName string, stationCfg *config.Station) {
+		s.recorder.Scheduled(ctx, stationName, stationCfg)
+	})
 }
 
 // runCleanup runs the cleanup with panic recovery.
