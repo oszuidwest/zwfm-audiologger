@@ -24,4 +24,4 @@ permissions:
 
 jobs:
   ci:
-    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v2
+    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v3
