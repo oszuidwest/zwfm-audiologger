@@ -2,15 +2,14 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -59,7 +58,7 @@ func (s *Server) setupRoutes() {
 
 // Start begins listening for HTTP requests.
 func (s *Server) Start(ctx context.Context) error {
-	addr := net.JoinHostPort("", strconv.Itoa(s.config.Port))
+	addr := fmt.Sprintf(":%d", s.config.Port)
 
 	slog.Info("HTTP server listening", "port", s.config.Port)
 	slog.Info("Endpoints:")
@@ -87,9 +86,6 @@ func (s *Server) Start(ctx context.Context) error {
 	select {
 	case err := <-errCh:
 		s.closeAccessLogFile()
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
 		return fmt.Errorf("serve HTTP: %w", err)
 	case <-ctx.Done():
 	}
@@ -98,26 +94,14 @@ func (s *Server) Start(ctx context.Context) error {
 	slog.Info("Shutting down HTTP server")
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	shutdownErr := server.Shutdown(shutdownCtx)
-	if shutdownErr != nil {
-		slog.Error("http server shutdown error", "error", shutdownErr)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		// Handlers may still be writing to the access log; the OS closes it on exit.
+		return fmt.Errorf("shut down HTTP server: %w", err)
 	}
+	s.closeAccessLogFile()
 
-	// Close the access log file only after a clean shutdown.
-	// If Shutdown timed out, handlers may still be writing to the log;
-	// closing early would silently discard those log entries.
-	// On a forced exit, the FD remains open until the process exits and the OS
-	// flushes and closes it.
-	if shutdownErr == nil {
-		s.closeAccessLogFile()
-	}
-
-	if shutdownErr != nil {
-		return fmt.Errorf("shut down HTTP server: %w", shutdownErr)
-	}
-
-	if serveErr := <-errCh; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-		return fmt.Errorf("serve HTTP during shutdown: %w", serveErr)
+	if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serve HTTP: %w", err)
 	}
 	return nil
 }
@@ -139,15 +123,14 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Wrap ResponseWriter to capture status code
-		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		lrw := &loggingResponseWriter{ResponseWriter: w}
 
 		next.ServeHTTP(lrw, r)
 
 		s.accessLogger.Info("HTTP request",
 			"method", r.Method,
 			"path", r.URL.Path,
-			"status", lrw.statusCode,
+			"status", cmp.Or(lrw.statusCode, http.StatusOK),
 			"duration", time.Since(start),
 		)
 	})
@@ -156,35 +139,24 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 // loggingResponseWriter wraps http.ResponseWriter to capture status code for logging purposes.
 type loggingResponseWriter struct {
 	http.ResponseWriter
-	statusCode  int
-	wroteHeader bool
+	statusCode int // 0 until the final status is sent; log it as 200 then.
 }
 
-// Unwrap lets http.ResponseController reach optional interfaces implemented by
-// the underlying response writer.
 func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter {
 	return lrw.ResponseWriter
 }
 
-// Write captures the implicit 200 status emitted by the first response body.
+// Write pins the implicit 200 that net/http sends when a body precedes WriteHeader.
 func (lrw *loggingResponseWriter) Write(data []byte) (int, error) {
-	if !lrw.wroteHeader {
-		lrw.WriteHeader(http.StatusOK)
-	}
+	lrw.statusCode = cmp.Or(lrw.statusCode, http.StatusOK)
 	return lrw.ResponseWriter.Write(data)
 }
 
-// WriteHeader captures the status code and calls the underlying ResponseWriter's WriteHeader.
+// WriteHeader records the first final status; 1xx (except 101) leave the header open, as in net/http.
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
-	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
-		lrw.ResponseWriter.WriteHeader(code)
-		return
+	if lrw.statusCode == 0 && (code < 100 || code >= 200 || code == http.StatusSwitchingProtocols) {
+		lrw.statusCode = code
 	}
-	if lrw.wroteHeader {
-		return
-	}
-	lrw.wroteHeader = true
-	lrw.statusCode = code
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
@@ -196,10 +168,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	if _, err := w.Write(append(payload, '\n')); err != nil {
-		slog.Warn("failed to write JSON response", "error", err)
-	}
+	_, _ = w.Write(payload)
 }

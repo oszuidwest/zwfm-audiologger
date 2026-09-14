@@ -29,11 +29,7 @@ func (n *recordingFailureNotifier) NotifyRecordingFailure(_ context.Context, _, 
 }
 
 func (n *recordingFailureNotifier) lastReason() string {
-	value := n.reason.Load()
-	reason, ok := value.(string)
-	if !ok {
-		return ""
-	}
+	reason, _ := n.reason.Load().(string)
 	return reason
 }
 

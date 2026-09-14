@@ -1,9 +1,7 @@
 package server
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -40,20 +38,8 @@ func extensionContentType(ext string) string {
 
 // handleRecordings serves files and directory listings from the recordings directory.
 func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
-	requestPath := r.PathValue("path")
-	urlPath := requestPath
-	if requestPath == "" {
-		requestPath = "."
-		urlPath = "/"
-	} else {
-		urlPath = "/" + urlPath
-	}
-
-	localPath, err := filepath.Localize(requestPath)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid path"})
-		return
-	}
+	// Clean drops the trailing "/" of directory links and clamps ".." to the root.
+	urlPath := path.Clean("/" + r.PathValue("path"))
 
 	root, err := os.OpenRoot(s.config.RecordingsDir)
 	if err != nil {
@@ -61,27 +47,17 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 		return
 	}
-	defer func() {
-		if err := root.Close(); err != nil {
-			slog.Warn("failed to close recordings root", "error", err)
-		}
-	}()
+	defer func() { _ = root.Close() }()
 
-	file, err := root.Open(localPath)
+	file, err := root.Open(path.Join(".", urlPath))
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "File not found"})
-			return
+		if !os.IsNotExist(err) {
+			slog.Warn("refused recording path", "path", urlPath, "error", err)
 		}
-		slog.Error("failed to open recording path", "path", urlPath, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "File not found"})
 		return
 	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			slog.Warn("failed to close recording path", "path", urlPath, "error", err)
-		}
-	}()
+	defer func() { _ = file.Close() }()
 
 	info, err := file.Stat()
 	if err != nil {
@@ -91,21 +67,17 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !info.IsDir() {
-		ext := filepath.Ext(info.Name())
-		contentType := extensionContentType(ext)
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(info.Name())))
+		w.Header().Set("Content-Type", extensionContentType(filepath.Ext(info.Name())))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", info.Name()))
 		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 		return
 	}
 
-	// It's a directory, show listing
 	s.showDirectoryListing(w, file, urlPath)
 }
 
 // showDirectoryListing displays an HTML directory listing.
 func (s *Server) showDirectoryListing(w http.ResponseWriter, dir *os.File, urlPath string) {
-	// Read directory
 	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})

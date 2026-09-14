@@ -60,11 +60,8 @@ func New(cfg *config.Config) (*Manager, error) {
 func (m *Manager) Start(ctx context.Context) error {
 	slog.Info("Validator started")
 
-	// Scan for unvalidated files on startup and keep it within Start's lifecycle.
 	var scanTasks sync.WaitGroup
-	scanTasks.Go(func() {
-		m.scanUnvalidated(ctx)
-	})
+	scanTasks.Go(func() { m.scanUnvalidated(ctx) })
 	defer scanTasks.Wait()
 
 	// Run worker loop.
@@ -87,7 +84,7 @@ func (m *Manager) NotifyRecordingFailure(ctx context.Context, station, reason st
 		return
 	}
 	failedAt := utils.Now()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), constants.AlertNotifyTimeout)
+	ctx, cancel := context.WithTimeout(ctx, constants.AlertNotifyTimeout)
 	defer cancel()
 	if err := m.alerter.SendRecordingFailure(ctx, station, reason, failedAt); err != nil {
 		slog.Error("failed to send recording failure alert", "station", station, "error", err)
@@ -146,7 +143,6 @@ func (m *Manager) scanUnvalidated(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-
 		stationDir := filepath.Join(m.config.RecordingsDir, stationName)
 
 		entries, err := os.ReadDir(stationDir)
@@ -161,7 +157,6 @@ func (m *Manager) scanUnvalidated(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-
 			if entry.IsDir() {
 				continue
 			}

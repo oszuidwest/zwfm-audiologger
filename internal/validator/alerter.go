@@ -265,8 +265,10 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 
 	for attempt := range constants.AlertRetryMax + 1 {
 		if attempt > 0 {
-			if err := waitForRetry(ctx, retryWait); err != nil {
-				return err
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryWait):
 			}
 			// Exponential backoff.
 			retryWait = min(retryWait*2, constants.AlertRetryMaxWait)
@@ -316,16 +318,4 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 	}
 
 	return fmt.Errorf("max retries exceeded: %w", lastErr)
-}
-
-func waitForRetry(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }

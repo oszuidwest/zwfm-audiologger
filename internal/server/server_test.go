@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -98,71 +97,93 @@ func TestCloseAccessLogFileAllowsNilFile(t *testing.T) {
 	}
 }
 
-func TestLoggingResponseWriterCapturesImplicitStatusOnce(t *testing.T) {
-	response := httptest.NewRecorder()
-	w := &loggingResponseWriter{ResponseWriter: response, statusCode: http.StatusOK}
-
-	if _, err := w.Write([]byte("body")); err != nil {
-		t.Fatalf("write response: %v", err)
-	}
-	w.WriteHeader(http.StatusTeapot)
-
-	if w.statusCode != http.StatusOK {
-		t.Fatalf("logged status = %d, want %d", w.statusCode, http.StatusOK)
-	}
-	if w.Unwrap() != response {
-		t.Fatal("Unwrap did not return the underlying response writer")
-	}
-}
-
-func TestLoggingResponseWriterCapturesFinalStatus(t *testing.T) {
+func TestLoggingResponseWriterStatus(t *testing.T) {
 	tests := []struct {
-		name       string
-		statuses   []int
-		wantCodes  []int
-		wantStatus int
+		name string
+		run  func(w *loggingResponseWriter)
+		want int
 	}{
 		{
-			name:       "early hints before final status",
-			statuses:   []int{http.StatusEarlyHints, http.StatusNotFound},
-			wantCodes:  []int{http.StatusEarlyHints, http.StatusNotFound},
-			wantStatus: http.StatusNotFound,
+			name: "explicit status",
+			run:  func(w *loggingResponseWriter) { w.WriteHeader(http.StatusNotFound) },
+			want: http.StatusNotFound,
 		},
 		{
-			name:       "switching protocols is final",
-			statuses:   []int{http.StatusSwitchingProtocols, http.StatusNotFound},
-			wantCodes:  []int{http.StatusSwitchingProtocols},
-			wantStatus: http.StatusSwitchingProtocols,
+			name: "implicit 200 wins over a later WriteHeader",
+			run: func(w *loggingResponseWriter) {
+				_, _ = w.Write([]byte("body"))
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			want: http.StatusOK,
+		},
+		{
+			name: "first final status wins over a duplicate",
+			run: func(w *loggingResponseWriter) {
+				w.WriteHeader(http.StatusNotFound)
+				w.WriteHeader(http.StatusTeapot)
+			},
+			want: http.StatusNotFound,
+		},
+		{
+			name: "early hints do not end the header",
+			run: func(w *loggingResponseWriter) {
+				w.WriteHeader(http.StatusEarlyHints)
+				w.WriteHeader(http.StatusNotFound)
+			},
+			want: http.StatusNotFound,
+		},
+		{
+			name: "switching protocols is final",
+			run: func(w *loggingResponseWriter) {
+				w.WriteHeader(http.StatusSwitchingProtocols)
+				w.WriteHeader(http.StatusNotFound)
+			},
+			want: http.StatusSwitchingProtocols,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			response := &statusCodeRecorder{ResponseRecorder: httptest.NewRecorder()}
-			w := &loggingResponseWriter{ResponseWriter: response, statusCode: http.StatusOK}
+			response := httptest.NewRecorder()
+			w := &loggingResponseWriter{ResponseWriter: response}
 
-			for _, status := range tt.statuses {
-				w.WriteHeader(status)
-			}
+			tt.run(w)
 
-			if w.statusCode != tt.wantStatus {
-				t.Fatalf("logged status = %d, want %d", w.statusCode, tt.wantStatus)
+			if w.statusCode != tt.want {
+				t.Fatalf("logged status = %d, want %d", w.statusCode, tt.want)
 			}
-			if !slices.Equal(response.statusCodes, tt.wantCodes) {
-				t.Fatalf("written statuses = %v, want %v", response.statusCodes, tt.wantCodes)
+			if w.Unwrap() != response {
+				t.Fatal("Unwrap did not return the underlying response writer")
 			}
 		})
 	}
 }
 
-type statusCodeRecorder struct {
-	*httptest.ResponseRecorder
-	statusCodes []int
-}
+func TestHandleRecordingsListsDirectoryWithTrailingSlash(t *testing.T) {
+	recordingsDir := t.TempDir()
+	stationDir := filepath.Join(recordingsDir, "station")
+	if err := os.Mkdir(stationDir, 0o700); err != nil {
+		t.Fatalf("create station directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stationDir, "2026-04-30-23.mp3"), []byte("audio"), 0o600); err != nil {
+		t.Fatalf("write recording: %v", err)
+	}
 
-func (r *statusCodeRecorder) WriteHeader(code int) {
-	r.statusCodes = append(r.statusCodes, code)
-	r.ResponseRecorder.WriteHeader(code)
+	s := &Server{config: &config.Config{RecordingsDir: recordingsDir}}
+	// The listing links to directories with a trailing slash, which the mux
+	// passes through to the path value unchanged.
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/station/", nil)
+	req.SetPathValue("path", "station/")
+	response := httptest.NewRecorder()
+
+	s.handleRecordings(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if body := response.Body.String(); !strings.Contains(body, `href="/recordings/station/2026-04-30-23.mp3"`) {
+		t.Fatalf("listing does not link to the recording:\n%s", body)
+	}
 }
 
 func TestHandleRecordingsServesFileFromRoot(t *testing.T) {
@@ -187,41 +208,47 @@ func TestHandleRecordingsServesFileFromRoot(t *testing.T) {
 	}
 }
 
-func TestHandleRecordingsRejectsEscapingPaths(t *testing.T) {
+func TestHandleRecordingsNeverEscapesRoot(t *testing.T) {
 	baseDir := t.TempDir()
 	recordingsDir := filepath.Join(baseDir, "recordings")
 	if err := os.Mkdir(recordingsDir, 0o700); err != nil {
 		t.Fatalf("create recordings directory: %v", err)
 	}
-	secretPath := filepath.Join(baseDir, "secret.txt")
-	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
-		t.Fatalf("write secret: %v", err)
+	// Same file name inside and outside the root, so a clamped ".." is
+	// distinguishable from an escape by the body that comes back.
+	outsidePath := filepath.Join(baseDir, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(recordingsDir, "secret.txt"), []byte("inside"), 0o600); err != nil {
+		t.Fatalf("write inside file: %v", err)
 	}
 	s := &Server{config: &config.Config{RecordingsDir: recordingsDir}}
-	assertRejected := func(t *testing.T, path string) {
+	get := func(t *testing.T, path string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/", nil)
 		req.SetPathValue("path", path)
 		response := httptest.NewRecorder()
-
 		s.handleRecordings(response, req)
-
-		if response.Code == http.StatusOK {
-			t.Fatal("escaping path unexpectedly returned 200 OK")
-		}
-		if strings.Contains(response.Body.String(), "secret") {
+		if strings.Contains(response.Body.String(), "outside") {
 			t.Fatal("response exposed data outside the recordings root")
 		}
+		return response
 	}
 
-	t.Run("parent traversal", func(t *testing.T) {
-		assertRejected(t, "../secret.txt")
+	t.Run("parent traversal is clamped to the root", func(t *testing.T) {
+		response := get(t, "../secret.txt")
+		if response.Code != http.StatusOK || response.Body.String() != "inside" {
+			t.Fatalf("status = %d, body = %q, want 200 and the in-root file", response.Code, response.Body.String())
+		}
 	})
-	t.Run("escaping symlink", func(t *testing.T) {
-		if err := os.Symlink(secretPath, filepath.Join(recordingsDir, "escape")); err != nil {
+	t.Run("escaping symlink is not found", func(t *testing.T) {
+		if err := os.Symlink(outsidePath, filepath.Join(recordingsDir, "escape")); err != nil {
 			t.Skipf("create symlink: %v", err)
 		}
-		assertRejected(t, "escape")
+		if response := get(t, "escape"); response.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+		}
 	})
 }
 

@@ -109,13 +109,9 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 
 	name := opts.name
 
-	// Metadata is fetched concurrently so it cannot delay the recording, but it
-	// remains part of this operation's lifecycle and is awaited before returning.
 	var metadataTasks sync.WaitGroup
 	if opts.station.MetadataURL != "" {
-		metadataTasks.Go(func() {
-			m.saveMetadata(ctx, name, opts.station, opts.timestamp)
-		})
+		metadataTasks.Go(func() { m.saveMetadata(ctx, name, opts.station, opts.timestamp) })
 		defer metadataTasks.Wait()
 	}
 

@@ -73,7 +73,6 @@ linters:
 
 formatters:
   enable:
-    - gofmt
     - gofumpt
   settings:
     gofumpt:
