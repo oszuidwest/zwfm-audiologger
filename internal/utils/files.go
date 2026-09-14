@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
 )
@@ -43,12 +42,10 @@ func IsAudioFile(name string) bool {
 	}
 }
 
-// AvailableDiskBytes returns bytes available to unprivileged users on the
-// filesystem containing the given path.
-func AvailableDiskBytes(path string) (uint64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return 0, fmt.Errorf("statfs %s: %w", path, err)
+func availableBytes(path string, blocks, blockSize uint64) (uint64, error) {
+	if blockSize != 0 && blocks > ^uint64(0)/blockSize {
+		return 0, fmt.Errorf("available disk space for %s overflows uint64", path)
 	}
-	return stat.Bavail * uint64(stat.Bsize), nil
+
+	return blocks * blockSize, nil
 }
