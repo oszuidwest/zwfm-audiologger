@@ -2,7 +2,9 @@
 package validator
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"fmt"
 	"os"
 	"time"
 
@@ -24,9 +26,12 @@ type ValidationResult struct {
 
 // Save writes the validation result to a JSON file.
 func (r *ValidationResult) Save(path string) error {
-	data, err := json.MarshalIndent(r, "", "  ")
+	data, err := json.Marshal(r, jsontext.WithIndent("  "))
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal validation result: %w", err)
 	}
-	return os.WriteFile(path, data, constants.FilePermissions)
+	if err := os.WriteFile(path, data, constants.FilePermissions); err != nil {
+		return fmt.Errorf("write validation result %q: %w", path, err)
+	}
+	return nil
 }

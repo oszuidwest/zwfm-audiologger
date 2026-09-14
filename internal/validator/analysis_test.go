@@ -1,7 +1,6 @@
 package validator
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +16,7 @@ printf '%s\n' '{"format":{"duration":"12.5"}}'
 
 	m := &Manager{config: &config.Config{FFprobePath: ffprobePath}}
 
-	got, err := m.analyzeDuration(context.Background(), "recording.mp3")
+	got, err := m.analyzeDuration(t.Context(), "recording.mp3")
 	if err != nil {
 		t.Fatalf("analyzeDuration returned error: %v", err)
 	}
@@ -41,7 +40,7 @@ exit 1
 		},
 	}}
 
-	got, err := m.analyzeSilence(context.Background(), "recording.mp3")
+	got, err := m.analyzeSilence(t.Context(), "recording.mp3")
 	if err != nil {
 		t.Fatalf("analyzeSilence returned error: %v", err)
 	}
@@ -63,7 +62,7 @@ exit 1
 
 	m := &Manager{config: &config.Config{FFmpegPath: ffmpegPath}}
 
-	got, err := m.analyzeLoops(context.Background(), "recording.mp3")
+	got, err := m.analyzeLoops(t.Context(), "recording.mp3")
 	if err != nil {
 		t.Fatalf("analyzeLoops returned error: %v", err)
 	}

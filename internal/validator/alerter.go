@@ -3,7 +3,8 @@ package validator
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -77,10 +78,10 @@ func validateCredentials(cfg *config.AlertConfig) error {
 		return err
 	}
 	if cfg.ClientSecret == "" {
-		return fmt.Errorf("client secret is required")
+		return errors.New("client secret is required")
 	}
 	if cfg.SenderEmail == "" {
-		return fmt.Errorf("sender email is required")
+		return errors.New("sender email is required")
 	}
 	return nil
 }
@@ -262,18 +263,13 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 	var lastErr error
 	retryWait := constants.AlertRetryInitialWait
 
-	for attempt := 0; attempt <= constants.AlertRetryMax; attempt++ {
+	for attempt := range constants.AlertRetryMax + 1 {
 		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(retryWait):
+			if err := waitForRetry(ctx, retryWait); err != nil {
+				return err
 			}
 			// Exponential backoff.
-			retryWait *= 2
-			if retryWait > constants.AlertRetryMaxWait {
-				retryWait = constants.AlertRetryMaxWait
-			}
+			retryWait = min(retryWait*2, constants.AlertRetryMaxWait)
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(jsonData))
@@ -320,4 +316,16 @@ func (a *Alerter) sendWithRetry(ctx context.Context, message *graphMailRequest) 
 	}
 
 	return fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

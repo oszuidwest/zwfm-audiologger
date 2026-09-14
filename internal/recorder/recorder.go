@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -30,7 +31,7 @@ type Validator interface {
 
 // Notifier defines the interface for recording failure notifications.
 type Notifier interface {
-	NotifyRecordingFailure(station, reason string)
+	NotifyRecordingFailure(ctx context.Context, station, reason string)
 }
 
 // Manager handles recording operations.
@@ -62,11 +63,6 @@ func New(cfg *config.Config, validator Validator, notifier Notifier) *Manager {
 func (m *Manager) Scheduled(ctx context.Context, name string, station *config.Station) {
 	timestamp := utils.HourlyTimestamp()
 
-	// Fetch metadata if configured
-	if station.MetadataURL != "" {
-		go m.saveMetadata(ctx, name, station, timestamp)
-	}
-
 	m.record(ctx, recordOptions{
 		name:           name,
 		station:        station,
@@ -81,10 +77,6 @@ func (m *Manager) Scheduled(ctx context.Context, name string, station *config.St
 func (m *Manager) Catchup(ctx context.Context, name string, station *config.Station, timestamp string, durationSecs int) {
 	duration := time.Duration(durationSecs) * time.Second
 	timeout := duration + 5*time.Minute // 5-minute buffer beyond duration
-
-	if station.MetadataURL != "" {
-		go m.saveMetadata(ctx, name, station, timestamp)
-	}
 
 	// Skip validation: catchup recordings are partial by definition and would
 	// always fail the MinDurationSecs check.
@@ -117,6 +109,16 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 
 	name := opts.name
 
+	// Metadata is fetched concurrently so it cannot delay the recording, but it
+	// remains part of this operation's lifecycle and is awaited before returning.
+	var metadataTasks sync.WaitGroup
+	if opts.station.MetadataURL != "" {
+		metadataTasks.Go(func() {
+			m.saveMetadata(ctx, name, opts.station, opts.timestamp)
+		})
+		defer metadataTasks.Wait()
+	}
+
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
 		reason := fmt.Sprintf("failed to create recording directory: %v", err)
@@ -126,7 +128,7 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 			"recordings_dir", m.config.RecordingsDir,
 			"computed_dir", dir,
 		)
-		m.notifyFailure(name, reason)
+		m.notifyFailure(ctx, name, reason)
 		return
 	}
 
@@ -135,13 +137,13 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	if err != nil {
 		reason := fmt.Sprintf("disk space check failed: %v", err)
 		slog.Error("skipping recording", "station", name, "reason", reason)
-		m.notifyFailure(name, reason)
+		m.notifyFailure(ctx, name, reason)
 		return
 	}
 	if available < constants.MinDiskSpaceBytes {
 		reason := fmt.Sprintf("insufficient disk space: %d bytes available, %d required", available, constants.MinDiskSpaceBytes)
 		slog.Error("skipping recording", "station", name, "reason", reason)
-		m.notifyFailure(name, reason)
+		m.notifyFailure(ctx, name, reason)
 		return
 	}
 
@@ -196,9 +198,9 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 }
 
 // notifyFailure sends a recording-failure alert when a notifier is configured.
-func (m *Manager) notifyFailure(name, reason string) {
+func (m *Manager) notifyFailure(ctx context.Context, name, reason string) {
 	if m.notifier != nil {
-		m.notifier.NotifyRecordingFailure(name, reason)
+		m.notifier.NotifyRecordingFailure(ctx, name, reason)
 	}
 }
 
@@ -224,7 +226,7 @@ func (m *Manager) detectFormat(ctx context.Context, name, tempFile string) (stri
 		"temp_file", tempFile,
 		"error", err,
 	)
-	m.notifyFailure(name, fmt.Sprintf("format detection failed: %v", err))
+	m.notifyFailure(ctx, name, fmt.Sprintf("format detection failed: %v", err))
 	return "", false
 }
 
@@ -256,7 +258,7 @@ func (m *Manager) remux(ctx context.Context, name, tempFile, finalFile string) b
 		"error", err,
 		"remux_output", truncateOutput(output),
 	)
-	m.notifyFailure(name, fmt.Sprintf("remux failed: %v", err))
+	m.notifyFailure(ctx, name, fmt.Sprintf("remux failed: %v", err))
 	return false
 }
 
@@ -306,7 +308,7 @@ func (m *Manager) handleRecordingFailure(
 		"ffmpeg_output", truncateOutput(output),
 	)
 
-	m.notifyFailure(name, fmt.Sprintf("ffmpeg failed: %v", err))
+	m.notifyFailure(ctx, name, fmt.Sprintf("ffmpeg failed: %v", err))
 
 	// Clean up temp file if it was created
 	if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
@@ -341,12 +343,12 @@ func (m *Manager) saveMetadata(ctx context.Context, stationName string, station 
 }
 
 // Test performs a test recording for all stations.
-func (m *Manager) Test() {
+func (m *Manager) Test(ctx context.Context) {
 	slog.Info("Running test recordings (10 seconds each)")
 
 	for name, station := range m.config.Stations {
 		timestamp := "test-" + utils.TestTimestamp()
-		m.record(context.Background(), recordOptions{
+		m.record(ctx, recordOptions{
 			name:           name,
 			station:        &station,
 			timestamp:      timestamp,

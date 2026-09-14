@@ -2,7 +2,7 @@ package validator_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -89,7 +89,7 @@ func TestStartCancelsInFlightValidationWithoutSidecar(t *testing.T) {
 	audioPath := filepath.Join(dir, "2026-04-28-12.mp3")
 	m.Enqueue(audioPath, "teststation", "2026-04-28-12")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- m.Start(ctx)

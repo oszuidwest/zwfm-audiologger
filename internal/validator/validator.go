@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sync"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 	"github.com/oszuidwest/zwfm-audiologger/internal/constants"
@@ -59,8 +60,12 @@ func New(cfg *config.Config) (*Manager, error) {
 func (m *Manager) Start(ctx context.Context) error {
 	slog.Info("Validator started")
 
-	// Scan for unvalidated files on startup.
-	go m.scanUnvalidated()
+	// Scan for unvalidated files on startup and keep it within Start's lifecycle.
+	var scanTasks sync.WaitGroup
+	scanTasks.Go(func() {
+		m.scanUnvalidated(ctx)
+	})
+	defer scanTasks.Wait()
 
 	// Run worker loop.
 	for {
@@ -77,12 +82,12 @@ func (m *Manager) Start(ctx context.Context) error {
 // NotifyRecordingFailure sends an alert when a recording fails to be created.
 // Called by the recorder for any recording failure: directory creation error,
 // insufficient disk space, disk check error, FFmpeg failure, or remux failure.
-func (m *Manager) NotifyRecordingFailure(station, reason string) {
+func (m *Manager) NotifyRecordingFailure(ctx context.Context, station, reason string) {
 	if m.alerter == nil {
 		return
 	}
 	failedAt := utils.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), constants.AlertNotifyTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), constants.AlertNotifyTimeout)
 	defer cancel()
 	if err := m.alerter.SendRecordingFailure(ctx, station, reason, failedAt); err != nil {
 		slog.Error("failed to send recording failure alert", "station", station, "error", err)
@@ -127,7 +132,7 @@ func (m *Manager) Enqueue(filePath, station, timestamp string) {
 }
 
 // scanUnvalidated finds recordings without validation files and queues them.
-func (m *Manager) scanUnvalidated() {
+func (m *Manager) scanUnvalidated(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("panic in scanUnvalidated; some stations may not have been scanned",
@@ -138,6 +143,10 @@ func (m *Manager) scanUnvalidated() {
 	slog.Info("Scanning for unvalidated recordings")
 
 	for stationName := range m.config.Stations {
+		if ctx.Err() != nil {
+			return
+		}
+
 		stationDir := filepath.Join(m.config.RecordingsDir, stationName)
 
 		entries, err := os.ReadDir(stationDir)
@@ -149,6 +158,10 @@ func (m *Manager) scanUnvalidated() {
 		}
 
 		for _, entry := range entries {
+			if ctx.Err() != nil {
+				return
+			}
+
 			if entry.IsDir() {
 				continue
 			}

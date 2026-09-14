@@ -3,7 +3,7 @@ package metadata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -116,30 +116,23 @@ func extractJSONPath(data []byte, path string) (string, error) {
 		return "", fmt.Errorf("parse metadata json: %w", err)
 	}
 
-	parts := strings.Split(path, ".")
-	current := jsonData
+	var current any = jsonData
+	for part := range strings.SplitSeq(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("json path %q has %T before %q, want object", path, current, part)
+		}
 
-	for i, part := range parts {
-		isLastPart := i == len(parts)-1
-		value, ok := current[part]
+		value, ok := object[part]
 		if !ok {
 			return "", fmt.Errorf("json path %q not found", path)
 		}
-
-		if isLastPart {
-			text, ok := value.(string)
-			if !ok {
-				return "", fmt.Errorf("json path %q has %T value, want string", path, value)
-			}
-			return strings.TrimSpace(text), nil
-		}
-
-		next, ok := value.(map[string]any)
-		if !ok {
-			return "", fmt.Errorf("json path %q has %T at %q, want object", path, value, part)
-		}
-		current = next
+		current = value
 	}
 
-	return "", fmt.Errorf("json path %q not found", path)
+	text, ok := current.(string)
+	if !ok {
+		return "", fmt.Errorf("json path %q has %T value, want string", path, current)
+	}
+	return strings.TrimSpace(text), nil
 }

@@ -3,11 +3,14 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
@@ -56,7 +59,7 @@ func (s *Server) setupRoutes() {
 
 // Start begins listening for HTTP requests.
 func (s *Server) Start(ctx context.Context) error {
-	addr := fmt.Sprintf(":%d", s.config.Port)
+	addr := net.JoinHostPort("", strconv.Itoa(s.config.Port))
 
 	slog.Info("HTTP server listening", "port", s.config.Port)
 	slog.Info("Endpoints:")
@@ -66,11 +69,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Create HTTP server with logging middleware
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      s.loggingMiddleware(s.mux),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              addr,
+		Handler:           s.loggingMiddleware(s.mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Run ListenAndServe in a goroutine so we can select on context cancellation.
@@ -83,13 +87,16 @@ func (s *Server) Start(ctx context.Context) error {
 	select {
 	case err := <-errCh:
 		s.closeAccessLogFile()
-		return err
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve HTTP: %w", err)
 	case <-ctx.Done():
 	}
 
 	// Gracefully shut down with a timeout.
 	slog.Info("Shutting down HTTP server")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	shutdownErr := server.Shutdown(shutdownCtx)
 	if shutdownErr != nil {
@@ -106,9 +113,13 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	if shutdownErr != nil {
-		return shutdownErr
+		return fmt.Errorf("shut down HTTP server: %w", shutdownErr)
 	}
-	return ctx.Err()
+
+	if serveErr := <-errCh; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return fmt.Errorf("serve HTTP during shutdown: %w", serveErr)
+	}
+	return nil
 }
 
 // closeAccessLogFile closes the access log file, clears the field, and is safe to call repeatedly.
@@ -145,20 +156,46 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 // loggingResponseWriter wraps http.ResponseWriter to capture status code for logging purposes.
 type loggingResponseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
+}
+
+// Unwrap lets http.ResponseController reach optional interfaces implemented by
+// the underlying response writer.
+func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return lrw.ResponseWriter
+}
+
+// Write captures the implicit 200 status emitted by the first response body.
+func (lrw *loggingResponseWriter) Write(data []byte) (int, error) {
+	if !lrw.wroteHeader {
+		lrw.WriteHeader(http.StatusOK)
+	}
+	return lrw.ResponseWriter.Write(data)
 }
 
 // WriteHeader captures the status code and calls the underlying ResponseWriter's WriteHeader.
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	if lrw.wroteHeader {
+		return
+	}
+	lrw.wroteHeader = true
 	lrw.statusCode = code
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
 // writeJSON writes a JSON response.
 func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
+	payload, err := json.Marshal(data)
+	if err != nil {
 		slog.Error("failed to encode JSON response", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if _, err := w.Write(append(payload, '\n')); err != nil {
+		slog.Warn("failed to write JSON response", "error", err)
 	}
 }
