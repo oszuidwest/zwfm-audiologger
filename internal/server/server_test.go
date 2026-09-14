@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +115,56 @@ func TestLoggingResponseWriterCapturesImplicitStatusOnce(t *testing.T) {
 	}
 }
 
+func TestLoggingResponseWriterCapturesFinalStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		statuses   []int
+		wantCodes  []int
+		wantStatus int
+	}{
+		{
+			name:       "early hints before final status",
+			statuses:   []int{http.StatusEarlyHints, http.StatusNotFound},
+			wantCodes:  []int{http.StatusEarlyHints, http.StatusNotFound},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "switching protocols is final",
+			statuses:   []int{http.StatusSwitchingProtocols, http.StatusNotFound},
+			wantCodes:  []int{http.StatusSwitchingProtocols},
+			wantStatus: http.StatusSwitchingProtocols,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := &statusCodeRecorder{ResponseRecorder: httptest.NewRecorder()}
+			w := &loggingResponseWriter{ResponseWriter: response, statusCode: http.StatusOK}
+
+			for _, status := range tt.statuses {
+				w.WriteHeader(status)
+			}
+
+			if w.statusCode != tt.wantStatus {
+				t.Fatalf("logged status = %d, want %d", w.statusCode, tt.wantStatus)
+			}
+			if !slices.Equal(response.statusCodes, tt.wantCodes) {
+				t.Fatalf("written statuses = %v, want %v", response.statusCodes, tt.wantCodes)
+			}
+		})
+	}
+}
+
+type statusCodeRecorder struct {
+	*httptest.ResponseRecorder
+	statusCodes []int
+}
+
+func (r *statusCodeRecorder) WriteHeader(code int) {
+	r.statusCodes = append(r.statusCodes, code)
+	r.ResponseRecorder.WriteHeader(code)
+}
+
 func TestHandleRecordingsServesFileFromRoot(t *testing.T) {
 	recordingsDir := t.TempDir()
 	const contents = "audio data"
@@ -146,35 +197,32 @@ func TestHandleRecordingsRejectsEscapingPaths(t *testing.T) {
 	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
 		t.Fatalf("write secret: %v", err)
 	}
-	if err := os.Symlink(secretPath, filepath.Join(recordingsDir, "escape")); err != nil {
-		t.Skipf("create symlink: %v", err)
-	}
-
 	s := &Server{config: &config.Config{RecordingsDir: recordingsDir}}
-	tests := []struct {
-		name string
-		path string
-	}{
-		{name: "parent traversal", path: "../secret.txt"},
-		{name: "escaping symlink", path: "escape"},
+	assertRejected := func(t *testing.T, path string) {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/", nil)
+		req.SetPathValue("path", path)
+		response := httptest.NewRecorder()
+
+		s.handleRecordings(response, req)
+
+		if response.Code == http.StatusOK {
+			t.Fatal("escaping path unexpectedly returned 200 OK")
+		}
+		if strings.Contains(response.Body.String(), "secret") {
+			t.Fatal("response exposed data outside the recordings root")
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/", nil)
-			req.SetPathValue("path", tt.path)
-			response := httptest.NewRecorder()
-
-			s.handleRecordings(response, req)
-
-			if response.Code == http.StatusOK {
-				t.Fatal("escaping path unexpectedly returned 200 OK")
-			}
-			if strings.Contains(response.Body.String(), "secret") {
-				t.Fatal("response exposed data outside the recordings root")
-			}
-		})
-	}
+	t.Run("parent traversal", func(t *testing.T) {
+		assertRejected(t, "../secret.txt")
+	})
+	t.Run("escaping symlink", func(t *testing.T) {
+		if err := os.Symlink(secretPath, filepath.Join(recordingsDir, "escape")); err != nil {
+			t.Skipf("create symlink: %v", err)
+		}
+		assertRejected(t, "escape")
+	})
 }
 
 func freeLocalPort(t *testing.T) int {

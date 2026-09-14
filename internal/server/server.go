@@ -176,6 +176,10 @@ func (lrw *loggingResponseWriter) Write(data []byte) (int, error) {
 
 // WriteHeader captures the status code and calls the underlying ResponseWriter's WriteHeader.
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		lrw.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if lrw.wroteHeader {
 		return
 	}
