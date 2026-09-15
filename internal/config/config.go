@@ -2,7 +2,8 @@
 package config
 
 import (
-	"encoding/json"
+	"cmp"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -54,19 +55,14 @@ type Station struct {
 
 // Load reads and parses the configuration from a JSON file and applies sensible defaults for missing values.
 func Load(path string) (*Config, error) {
-	file, err := os.Open(path) //nolint:gosec // Config path is provided by the application, not user input
+	data, err := os.ReadFile(path) //nolint:gosec // Config path is provided by the application, not user input.
 	if err != nil {
-		return nil, fmt.Errorf("failed to open config file %q: %w", path, err)
+		return nil, fmt.Errorf("read config file %q: %w", path, err)
 	}
-	defer func() { _ = file.Close() }()
 
 	var cfg Config
-
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-
-	if err := decoder.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+	if err := json.Unmarshal(data, &cfg, json.RejectUnknownMembers(true)); err != nil {
+		return nil, fmt.Errorf("parse config file %q: %w", path, err)
 	}
 
 	cfg.applyDefaults()
@@ -94,24 +90,12 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) applyDefaults() {
-	if c.RecordingsDir == "" {
-		c.RecordingsDir = constants.DefaultRecordingsDir
-	}
-	if c.KeepDays == 0 {
-		c.KeepDays = constants.DefaultKeepDays
-	}
-	if c.Port == 0 {
-		c.Port = constants.DefaultPort
-	}
-	if c.Timezone == "" {
-		c.Timezone = constants.DefaultTimezone
-	}
-	if c.FFmpegPath == "" {
-		c.FFmpegPath = constants.DefaultFFmpegPath
-	}
-	if c.FFprobePath == "" {
-		c.FFprobePath = constants.DefaultFFprobePath
-	}
+	c.RecordingsDir = cmp.Or(c.RecordingsDir, constants.DefaultRecordingsDir)
+	c.KeepDays = cmp.Or(c.KeepDays, constants.DefaultKeepDays)
+	c.Port = cmp.Or(c.Port, constants.DefaultPort)
+	c.Timezone = cmp.Or(c.Timezone, constants.DefaultTimezone)
+	c.FFmpegPath = cmp.Or(c.FFmpegPath, constants.DefaultFFmpegPath)
+	c.FFprobePath = cmp.Or(c.FFprobePath, constants.DefaultFFprobePath)
 
 	if c.Validation != nil && c.Validation.Enabled {
 		c.Validation.applyDefaults()
@@ -119,16 +103,8 @@ func (c *Config) applyDefaults() {
 }
 
 func (v *ValidationConfig) applyDefaults() {
-	if v.MinDurationSecs == 0 {
-		v.MinDurationSecs = constants.DefaultMinDurationSecs
-	}
-	if v.SilenceThresholdDB == 0 {
-		v.SilenceThresholdDB = constants.DefaultSilenceThresholdDB
-	}
-	if v.MaxSilenceSecs == 0 {
-		v.MaxSilenceSecs = constants.DefaultMaxSilenceSecs
-	}
-	if v.MaxLoopPercent == 0 {
-		v.MaxLoopPercent = constants.DefaultMaxLoopPercent
-	}
+	v.MinDurationSecs = cmp.Or(v.MinDurationSecs, constants.DefaultMinDurationSecs)
+	v.SilenceThresholdDB = cmp.Or(v.SilenceThresholdDB, constants.DefaultSilenceThresholdDB)
+	v.MaxSilenceSecs = cmp.Or(v.MaxSilenceSecs, constants.DefaultMaxSilenceSecs)
+	v.MaxLoopPercent = cmp.Or(v.MaxLoopPercent, constants.DefaultMaxLoopPercent)
 }

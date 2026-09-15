@@ -77,6 +77,18 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsDuplicateFields(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	data := []byte(`{"port": 8080, "port": 9090, "stations": {}}`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(configPath); err == nil {
+		t.Fatal("Load returned nil error for config with a duplicate field")
+	}
+}
+
 func TestValidateAcceptsConfiguredBinaries(t *testing.T) {
 	t.Parallel()
 

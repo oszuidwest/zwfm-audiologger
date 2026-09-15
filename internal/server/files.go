@@ -38,45 +38,47 @@ func extensionContentType(ext string) string {
 
 // handleRecordings serves files and directory listings from the recordings directory.
 func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
-	// Extract the filepath from URL path parameter
-	urlPath := r.PathValue("path")
-	if urlPath == "" {
-		urlPath = "/"
-	} else {
-		urlPath = "/" + urlPath
-	}
+	// Clean drops the trailing "/" of directory links and clamps ".." to the root.
+	urlPath := path.Clean("/" + r.PathValue("path"))
 
-	// Simple path construction - recordings are controlled by the system
-	fsPath := filepath.Join(s.config.RecordingsDir, filepath.Clean(urlPath))
-
-	// Get file info
-	info, err := os.Stat(fsPath) //nolint:gosec // G703: path is sanitized via filepath.Clean above, not raw user input
+	root, err := os.OpenRoot(s.config.RecordingsDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "File not found"})
-			return
+		slog.Error("failed to open recordings root", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+		return
+	}
+	defer func() { _ = root.Close() }()
+
+	file, err := root.Open(path.Join(".", urlPath))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("refused recording path", "path", urlPath, "error", err)
 		}
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "File not found"})
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		slog.Error("failed to stat recording path", "path", urlPath, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 		return
 	}
 
 	if !info.IsDir() {
-		ext := filepath.Ext(fsPath)
-		contentType := extensionContentType(ext)
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(fsPath)))
-		http.ServeFile(w, r, fsPath)
+		w.Header().Set("Content-Type", extensionContentType(filepath.Ext(info.Name())))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", info.Name()))
+		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 		return
 	}
 
-	// It's a directory, show listing
-	s.showDirectoryListing(w, r, fsPath, urlPath)
+	s.showDirectoryListing(w, file, urlPath)
 }
 
 // showDirectoryListing displays an HTML directory listing.
-func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fsPath, urlPath string) {
-	// Read directory
-	entries, err := os.ReadDir(fsPath)
+func (s *Server) showDirectoryListing(w http.ResponseWriter, dir *os.File, urlPath string) {
+	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 		return
@@ -102,7 +104,7 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, fs
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
-			slog.Warn( //nolint:gosec // entry name comes from our own recordings directory, not user input
+			slog.Warn(
 				"failed to read directory entry info, skipping",
 				"entry", entry.Name(),
 				"error", err,
