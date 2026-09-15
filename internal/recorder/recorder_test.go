@@ -275,13 +275,14 @@ exit 1
 
 func TestRecordWaitsForMetadataTask(t *testing.T) {
 	requestStarted := make(chan struct{})
-	releaseRequest := make(chan struct{})
+	releaseCtx, release := context.WithCancel(context.WithoutCancel(t.Context()))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(requestStarted)
-		<-releaseRequest
+		<-releaseCtx.Done()
 		_, _ = w.Write([]byte("metadata"))
 	}))
 	t.Cleanup(server.Close)
+	t.Cleanup(release)
 
 	manager := New(&config.Config{RecordingsDir: t.TempDir()}, nil, nil)
 	manager.availableBytes = func(string) (uint64, error) {
@@ -309,7 +310,7 @@ func TestRecordWaitsForMetadataTask(t *testing.T) {
 	default:
 	}
 
-	close(releaseRequest)
+	release()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

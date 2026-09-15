@@ -1,6 +1,7 @@
 package validator_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"os"
@@ -38,12 +39,7 @@ func TestMarkSkipped(t *testing.T) {
 		t.Fatalf("sidecar not written: %v", err)
 	}
 
-	var result struct {
-		Station   string `json:"station"`
-		Timestamp string `json:"timestamp"`
-		Valid     bool   `json:"valid"`
-		Skipped   bool   `json:"skipped"`
-	}
+	var result validator.ValidationResult
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("failed to parse sidecar JSON: %v", err)
 	}
@@ -58,6 +54,16 @@ func TestMarkSkipped(t *testing.T) {
 	}
 	if result.Timestamp != timestamp {
 		t.Errorf("sidecar timestamp = %q, want %q", result.Timestamp, timestamp)
+	}
+}
+
+func TestValidationResultOmitsFalseSkipped(t *testing.T) {
+	data, err := json.Marshal(&validator.ValidationResult{})
+	if err != nil {
+		t.Fatalf("marshal validation result: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"skipped"`)) {
+		t.Fatalf("false skipped field was not omitted: %s", data)
 	}
 }
 
