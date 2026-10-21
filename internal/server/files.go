@@ -113,7 +113,7 @@ func (s *Server) showDirectoryListing(w http.ResponseWriter, _ *http.Request, re
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
-			slog.Warn( //nolint:gosec // entry name comes from our own recordings directory, not user input
+			slog.Warn(
 				"failed to read directory entry info, skipping",
 				"entry", entry.Name(),
 				"error", err,

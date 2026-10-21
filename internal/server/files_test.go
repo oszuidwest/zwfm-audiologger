@@ -29,8 +29,9 @@ func newRecordingsTestServer(t *testing.T) *Server {
 	return &Server{config: &config.Config{RecordingsDir: recordingsDir}}
 }
 
-func serveRecordingsPath(s *Server, urlPath, byteRange string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/recordings/"+urlPath, http.NoBody)
+func serveRecordingsPath(t *testing.T, s *Server, urlPath, byteRange string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/"+urlPath, http.NoBody)
 	req.SetPathValue("path", urlPath)
 	if byteRange != "" {
 		req.Header.Set("Range", byteRange)
@@ -43,7 +44,7 @@ func serveRecordingsPath(s *Server, urlPath, byteRange string) *httptest.Respons
 func TestHandleRecordingsServesFile(t *testing.T) {
 	s := newRecordingsTestServer(t)
 
-	rec := serveRecordingsPath(s, "station/2026-10-22-10.meta", "")
+	rec := serveRecordingsPath(t, s, "station/2026-10-22-10.meta", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -57,7 +58,7 @@ func TestHandleRecordingsServesFile(t *testing.T) {
 		t.Fatalf("Content-Disposition = %q", got)
 	}
 
-	rec = serveRecordingsPath(s, "station/2026-10-22-10.meta", "bytes=2-4")
+	rec = serveRecordingsPath(t, s, "station/2026-10-22-10.meta", "bytes=2-4")
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("range status = %d, want %d", rec.Code, http.StatusPartialContent)
 	}
@@ -73,12 +74,26 @@ func TestHandleRecordingsStaysInsideRecordingsDir(t *testing.T) {
 	s := newRecordingsTestServer(t)
 
 	for _, urlPath := range []string{"../secret.txt", "station/../../secret.txt"} {
-		rec := serveRecordingsPath(s, urlPath, "")
+		rec := serveRecordingsPath(t, s, urlPath, "")
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status = %d, want %d", urlPath, rec.Code, http.StatusNotFound)
 		}
 		if strings.Contains(rec.Body.String(), "secret") {
 			t.Errorf("%s: response leaked file outside recordings dir", urlPath)
 		}
+	}
+}
+
+func TestHandleRecordingsListsDirectoryWithTrailingSlash(t *testing.T) {
+	s := newRecordingsTestServer(t)
+
+	// The listing links to directories with a trailing slash, which the mux
+	// passes through to the path value unchanged.
+	rec := serveRecordingsPath(t, s, "station/", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `href="/recordings/station/2026-10-22-10.meta"`) {
+		t.Fatalf("listing does not link to the recording:\n%s", body)
 	}
 }

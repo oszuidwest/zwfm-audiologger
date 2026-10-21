@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -157,91 +155,6 @@ func TestLoggingResponseWriterStatus(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestHandleRecordingsListsDirectoryWithTrailingSlash(t *testing.T) {
-	recordingsDir := t.TempDir()
-	stationDir := filepath.Join(recordingsDir, "station")
-	if err := os.Mkdir(stationDir, 0o700); err != nil {
-		t.Fatalf("create station directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(stationDir, "2026-04-30-23.mp3"), []byte("audio"), 0o600); err != nil {
-		t.Fatalf("write recording: %v", err)
-	}
-
-	s := &Server{config: &config.Config{RecordingsDir: recordingsDir}}
-	// The listing links to directories with a trailing slash, which the mux
-	// passes through to the path value unchanged.
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/station/", nil)
-	req.SetPathValue("path", "station/")
-	response := httptest.NewRecorder()
-
-	s.handleRecordings(response, req)
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
-	}
-	if body := response.Body.String(); !strings.Contains(body, `href="/recordings/station/2026-04-30-23.mp3"`) {
-		t.Fatalf("listing does not link to the recording:\n%s", body)
-	}
-}
-
-func TestHandleRecordingsServesFileFromRoot(t *testing.T) {
-	recordingsDir := t.TempDir()
-	const contents = "audio data"
-	if err := os.WriteFile(filepath.Join(recordingsDir, "recording.mp3"), []byte(contents), 0o600); err != nil {
-		t.Fatalf("write recording: %v", err)
-	}
-
-	s := &Server{config: &config.Config{RecordingsDir: recordingsDir}}
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/recording.mp3", nil)
-	req.SetPathValue("path", "recording.mp3")
-	response := httptest.NewRecorder()
-
-	s.handleRecordings(response, req)
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
-	}
-	if got := response.Body.String(); got != contents {
-		t.Fatalf("body = %q, want %q", got, contents)
-	}
-}
-
-func TestHandleRecordingsNeverEscapesRoot(t *testing.T) {
-	baseDir := t.TempDir()
-	recordingsDir := filepath.Join(baseDir, "recordings")
-	if err := os.Mkdir(recordingsDir, 0o700); err != nil {
-		t.Fatalf("create recordings directory: %v", err)
-	}
-	// Same file name inside and outside the root, so a clamped ".." is
-	// distinguishable from an escape by the body that comes back.
-	outsidePath := filepath.Join(baseDir, "secret.txt")
-	if err := os.WriteFile(outsidePath, []byte("outside"), 0o600); err != nil {
-		t.Fatalf("write outside file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(recordingsDir, "secret.txt"), []byte("inside"), 0o600); err != nil {
-		t.Fatalf("write inside file: %v", err)
-	}
-	s := &Server{config: &config.Config{RecordingsDir: recordingsDir}}
-	get := func(t *testing.T, path string) *httptest.ResponseRecorder {
-		t.Helper()
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/recordings/", nil)
-		req.SetPathValue("path", path)
-		response := httptest.NewRecorder()
-		s.handleRecordings(response, req)
-		if strings.Contains(response.Body.String(), "outside") {
-			t.Fatal("response exposed data outside the recordings root")
-		}
-		return response
-	}
-
-	t.Run("parent traversal is clamped to the root", func(t *testing.T) {
-		response := get(t, "../secret.txt")
-		if response.Code != http.StatusOK || response.Body.String() != "inside" {
-			t.Fatalf("status = %d, body = %q, want 200 and the in-root file", response.Code, response.Body.String())
-		}
-	})
 }
 
 func freeLocalPort(t *testing.T) int {
