@@ -48,15 +48,15 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve the request against an fs.FS rooted at the recordings directory,
-	// which rejects names that would escape it.
+	// which rejects ".." names that would escape it. Symlinks are followed.
 	recordings := os.DirFS(s.config.RecordingsDir)
 	name := strings.TrimPrefix(path.Clean(urlPath), "/")
 	if name == "" {
 		name = "."
 	}
 
-	// Get file info
-	info, err := fs.Stat(recordings, name)
+	// Open first and stat the opened file, so the metadata matches the served content
+	f, err := http.FS(recordings).Open(name)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "File not found"})
@@ -65,28 +65,23 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 		return
 	}
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
+		return
+	}
 
 	if !info.IsDir() {
-		s.serveFile(w, r, recordings, name, info)
+		w.Header().Set("Content-Type", extensionContentType(path.Ext(name)))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(name)))
+		http.ServeContent(w, r, name, info.ModTime(), f)
 		return
 	}
 
 	// It's a directory, show listing
 	s.showDirectoryListing(w, r, recordings, name, urlPath)
-}
-
-// serveFile streams a single recording file, honoring range and conditional requests.
-func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, recordings fs.FS, name string, info fs.FileInfo) {
-	f, err := http.FS(recordings).Open(name)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
-		return
-	}
-	defer func() { _ = f.Close() }()
-
-	w.Header().Set("Content-Type", extensionContentType(path.Ext(name)))
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(name)))
-	http.ServeContent(w, r, name, info.ModTime(), f)
 }
 
 // showDirectoryListing displays an HTML directory listing.
