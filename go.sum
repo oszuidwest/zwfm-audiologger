@@ -1,6 +1,6 @@
-github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
-github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/netresearch/go-cron v0.16.0 h1:b14Vnfobzm8pyBuyqbVvyV4xAi3DDREJz+5mzWil8Ew=
-github.com/netresearch/go-cron v0.16.0/go.mod h1:IADGFX1B9VxD6hc1WdmXjhRwe2g3SKIAEbEZQ/ON8Oo=
+github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
+github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
+github.com/netresearch/go-cron v0.16.1 h1:X34Uohtmz99eYlDdZRpTyatJZRmhMD9GSVzYZ96z3PE=
+github.com/netresearch/go-cron v0.16.1/go.mod h1:MGZe9ZJsjwqb+ahm//Xjzz4C8RkD1RwGTx9km7TTOOE=
 golang.org/x/oauth2 v0.37.0 h1:JUlcxA8oAtauLfiH8FX2/FkAWHAdi0QtGCGc+hofE98=
 golang.org/x/oauth2 v0.37.0/go.mod h1:IxwZNxUULJmpBFf9K/9NTMSIfZZuvuTy1gGxhigP/58=
