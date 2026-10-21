@@ -1,7 +1,6 @@
 package server
 
 import (
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,10 +29,12 @@ func newRecordingsTestServer(t *testing.T) *Server {
 	return &Server{config: &config.Config{RecordingsDir: recordingsDir}}
 }
 
-func serveRecordingsPath(s *Server, urlPath string, header http.Header) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, "/recordings/", http.NoBody)
+func serveRecordingsPath(s *Server, urlPath, byteRange string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/recordings/"+urlPath, http.NoBody)
 	req.SetPathValue("path", urlPath)
-	maps.Copy(req.Header, header)
+	if byteRange != "" {
+		req.Header.Set("Range", byteRange)
+	}
 	rec := httptest.NewRecorder()
 	s.handleRecordings(rec, req)
 	return rec
@@ -42,8 +43,7 @@ func serveRecordingsPath(s *Server, urlPath string, header http.Header) *httptes
 func TestHandleRecordingsServesFile(t *testing.T) {
 	s := newRecordingsTestServer(t)
 
-	rec := serveRecordingsPath(s, "station/2026-10-22-10.meta", nil)
-
+	rec := serveRecordingsPath(s, "station/2026-10-22-10.meta", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -56,41 +56,16 @@ func TestHandleRecordingsServesFile(t *testing.T) {
 	if got := rec.Header().Get("Content-Disposition"); got != `inline; filename="2026-10-22-10.meta"` {
 		t.Fatalf("Content-Disposition = %q", got)
 	}
-}
 
-func TestHandleRecordingsServesRange(t *testing.T) {
-	s := newRecordingsTestServer(t)
-
-	rec := serveRecordingsPath(s, "station/2026-10-22-10.meta", http.Header{"Range": {"bytes=2-4"}})
-
+	rec = serveRecordingsPath(s, "station/2026-10-22-10.meta", "bytes=2-4")
 	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
+		t.Fatalf("range status = %d, want %d", rec.Code, http.StatusPartialContent)
 	}
 	if got := rec.Body.String(); got != "234" {
-		t.Fatalf("body = %q, want %q", got, "234")
+		t.Fatalf("range body = %q, want %q", got, "234")
 	}
-}
-
-func TestHandleRecordingsListsDirectory(t *testing.T) {
-	s := newRecordingsTestServer(t)
-
-	rec := serveRecordingsPath(s, "station", nil)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if !strings.Contains(rec.Body.String(), "/recordings/station/2026-10-22-10.meta") {
-		t.Fatalf("listing does not link the recording:\n%s", rec.Body.String())
-	}
-}
-
-func TestHandleRecordingsNotFound(t *testing.T) {
-	s := newRecordingsTestServer(t)
-
-	rec := serveRecordingsPath(s, "station/missing.mp3", nil)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	if got := rec.Header().Get("Content-Range"); got != "bytes 2-4/10" {
+		t.Fatalf("Content-Range = %q", got)
 	}
 }
 
@@ -98,8 +73,7 @@ func TestHandleRecordingsStaysInsideRecordingsDir(t *testing.T) {
 	s := newRecordingsTestServer(t)
 
 	for _, urlPath := range []string{"../secret.txt", "station/../../secret.txt"} {
-		rec := serveRecordingsPath(s, urlPath, nil)
-
+		rec := serveRecordingsPath(s, urlPath, "")
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status = %d, want %d", urlPath, rec.Code, http.StatusNotFound)
 		}

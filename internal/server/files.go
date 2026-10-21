@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -78,22 +77,16 @@ func (s *Server) handleRecordings(w http.ResponseWriter, r *http.Request) {
 
 // serveFile streams a single recording file, honoring range and conditional requests.
 func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, recordings fs.FS, name string, info fs.FileInfo) {
-	f, err := recordings.Open(name)
+	f, err := http.FS(recordings).Open(name)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
 		return
 	}
 	defer func() { _ = f.Close() }()
 
-	content, ok := f.(io.ReadSeeker)
-	if !ok {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
-		return
-	}
-
 	w.Header().Set("Content-Type", extensionContentType(path.Ext(name)))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(name)))
-	http.ServeContent(w, r, name, info.ModTime(), content)
+	http.ServeContent(w, r, name, info.ModTime(), f)
 }
 
 // showDirectoryListing displays an HTML directory listing.
