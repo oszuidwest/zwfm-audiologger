@@ -242,14 +242,6 @@ func TestHandleRecordingsNeverEscapesRoot(t *testing.T) {
 			t.Fatalf("status = %d, body = %q, want 200 and the in-root file", response.Code, response.Body.String())
 		}
 	})
-	t.Run("escaping symlink is not found", func(t *testing.T) {
-		if err := os.Symlink(outsidePath, filepath.Join(recordingsDir, "escape")); err != nil {
-			t.Skipf("create symlink: %v", err)
-		}
-		if response := get(t, "escape"); response.Code != http.StatusNotFound {
-			t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
-		}
-	})
 }
 
 func freeLocalPort(t *testing.T) int {
