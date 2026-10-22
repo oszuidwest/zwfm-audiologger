@@ -137,7 +137,7 @@ The image is published as multi-arch (`linux/amd64`, `linux/arm64`) on every rel
 ./audiologger -version
 ```
 
-Pre-built binaries for `linux/amd64`, `linux/arm64`, `linux/arm/7`, `darwin/amd64`, and `darwin/arm64` are attached to every GitHub Release.
+Pre-built binaries for `linux/amd64`, `linux/arm64`, `linux/arm/7`, `darwin/amd64`, and `darwin/arm64` are attached to every GitHub Release. The macOS builds require macOS 13 Ventura or later.
 
 ## HTTP API
 

@@ -150,10 +150,12 @@ func TestLoggingResponseWriterStatus(t *testing.T) {
 			if w.statusCode != tt.want {
 				t.Fatalf("logged status = %d, want %d", w.statusCode, tt.want)
 			}
-			if w.Unwrap() != response {
-				t.Fatal("Unwrap did not return the underlying response writer")
-			}
 		})
+	}
+
+	response := httptest.NewRecorder()
+	if w := (&loggingResponseWriter{ResponseWriter: response}); w.Unwrap() != response {
+		t.Fatal("Unwrap did not return the underlying response writer")
 	}
 }
 
