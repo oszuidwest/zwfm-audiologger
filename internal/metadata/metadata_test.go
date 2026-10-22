@@ -15,7 +15,7 @@ func TestFetchRawTrimsWhitespace(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	got := New().Fetch(context.Background(), server.URL, "", false)
+	got := New().Fetch(t.Context(), server.URL, "", false)
 	if got != "Artist - Title" {
 		t.Errorf("Fetch raw = %q, want %q", got, "Artist - Title")
 	}
@@ -27,7 +27,7 @@ func TestFetchParsesJSONPath(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	got := New().Fetch(context.Background(), server.URL, "data.current.title", true)
+	got := New().Fetch(t.Context(), server.URL, "data.current.title", true)
 	if got != "Artist - Title" {
 		t.Errorf("Fetch JSON path = %q, want %q", got, "Artist - Title")
 	}
@@ -35,13 +35,13 @@ func TestFetchParsesJSONPath(t *testing.T) {
 
 func TestFetchRespectsMidFlightCancelledContext(t *testing.T) {
 	started := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-r.Context().Done()
 	}))
 	t.Cleanup(server.Close)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	resultCh := make(chan string, 1)
 	go func() {
@@ -72,7 +72,7 @@ func TestFetchReturnsEmptyForHTTPErrorStatus(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	got := New().Fetch(context.Background(), server.URL, "", false)
+	got := New().Fetch(t.Context(), server.URL, "", false)
 	if got != "" {
 		t.Errorf("Fetch HTTP error = %q, want empty string", got)
 	}
@@ -84,7 +84,7 @@ func TestFetchReturnsEmptyForInvalidJSON(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	got := New().Fetch(context.Background(), server.URL, "data.current.title", true)
+	got := New().Fetch(t.Context(), server.URL, "data.current.title", true)
 	if got != "" {
 		t.Errorf("Fetch invalid JSON = %q, want empty string", got)
 	}
@@ -96,7 +96,7 @@ func TestFetchReturnsEmptyForMissingJSONPath(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	got := New().Fetch(context.Background(), server.URL, "data.current.title", true)
+	got := New().Fetch(t.Context(), server.URL, "data.current.title", true)
 	if got != "" {
 		t.Errorf("Fetch missing JSON path = %q, want empty string", got)
 	}
@@ -108,7 +108,7 @@ func TestFetchReturnsEmptyForOversizedResponse(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	got := New().Fetch(context.Background(), server.URL, "", false)
+	got := New().Fetch(t.Context(), server.URL, "", false)
 	if got != "" {
 		t.Errorf("Fetch oversized response returned %d bytes, want empty string", len(got))
 	}

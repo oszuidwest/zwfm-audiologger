@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	cron "github.com/netresearch/go-cron"
@@ -22,6 +23,7 @@ import (
 type Scheduler struct {
 	config   *config.Config
 	recorder *recorder.Manager
+	tasks    sync.WaitGroup
 }
 
 // New creates a new scheduler.
@@ -68,6 +70,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	slog.Info("Shutting down scheduler")
 	shutdownCtx := scheduler.Stop()
 	<-shutdownCtx.Done()
+	s.tasks.Wait()
 	slog.Info("Scheduler stopped")
 
 	return nil
@@ -148,7 +151,7 @@ func (s *Scheduler) startCatchupRecordings(ctx context.Context) {
 // operation in log messages.
 func (s *Scheduler) forEachStationAsync(ctx context.Context, action string, fn func(name string, station *config.Station)) {
 	for name, station := range s.config.Stations {
-		go func() {
+		s.tasks.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("panic in station task", "action", action, "station", name, "panic", r, "stack", string(debug.Stack()))
@@ -159,7 +162,7 @@ func (s *Scheduler) forEachStationAsync(ctx context.Context, action string, fn f
 				return
 			}
 			fn(name, &station)
-		}()
+		})
 	}
 }
 

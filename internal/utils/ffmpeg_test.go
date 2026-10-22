@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"context"
 	"os/exec"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ func TestFFmpegCommandPaths(t *testing.T) {
 	}{
 		{
 			name: "record",
-			cmd:  RecordCommand(context.Background(), "/custom/ffmpeg", "https://stream.example.com", time.Second, "out.mkv"),
+			cmd:  RecordCommand(t.Context(), "/custom/ffmpeg", "https://stream.example.com", time.Second, "out.mkv"),
 			want: "/custom/ffmpeg",
 		},
 		{
@@ -27,17 +26,17 @@ func TestFFmpegCommandPaths(t *testing.T) {
 		},
 		{
 			name: "probe",
-			cmd:  ProbeCommand(context.Background(), "/custom/ffprobe", "in.mp3"),
+			cmd:  ProbeCommand(t.Context(), "/custom/ffprobe", "in.mp3"),
 			want: "/custom/ffprobe",
 		},
 		{
 			name: "silence detect",
-			cmd:  SilenceDetectCommand(context.Background(), "/custom/ffmpeg", "in.mp3", -40, 5),
+			cmd:  SilenceDetectCommand(t.Context(), "/custom/ffmpeg", "in.mp3", -40, 5),
 			want: "/custom/ffmpeg",
 		},
 		{
 			name: "audio stats",
-			cmd:  AudioStatsCommand(context.Background(), "/custom/ffmpeg", "in.mp3"),
+			cmd:  AudioStatsCommand(t.Context(), "/custom/ffmpeg", "in.mp3"),
 			want: "/custom/ffmpeg",
 		},
 	}

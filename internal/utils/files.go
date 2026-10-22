@@ -4,6 +4,7 @@ package utils
 
 import (
 	"fmt"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,16 @@ func AvailableDiskBytes(path string) (uint64, error) {
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, fmt.Errorf("statfs %s: %w", path, err)
 	}
-	//nolint:gosec // Bsize is always positive; conversion from signed to unsigned is safe here.
-	return stat.Bavail * uint64(stat.Bsize), nil
+	if stat.Bsize <= 0 {
+		return 0, fmt.Errorf("statfs %s: invalid block size %d", path, stat.Bsize)
+	}
+	return availableBytes(path, stat.Bavail, uint64(stat.Bsize))
+}
+
+func availableBytes(path string, blocks, blockSize uint64) (uint64, error) {
+	hi, lo := bits.Mul64(blocks, blockSize)
+	if hi != 0 {
+		return 0, fmt.Errorf("available disk space for %s overflows uint64", path)
+	}
+	return lo, nil
 }

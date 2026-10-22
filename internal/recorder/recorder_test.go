@@ -2,6 +2,9 @@ package recorder
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,17 +23,14 @@ type recordingFailureNotifier struct {
 	reason atomic.Value
 }
 
-func (n *recordingFailureNotifier) NotifyRecordingFailure(_, reason string) {
+func (n *recordingFailureNotifier) NotifyRecordingFailure(_ context.Context, _, reason string) {
 	n.calls.Add(1)
 	n.reason.Store(reason)
 }
 
 func (n *recordingFailureNotifier) lastReason() string {
-	reason := n.reason.Load()
-	if reason == nil {
-		return ""
-	}
-	return reason.(string)
+	reason, _ := n.reason.Load().(string)
+	return reason
 }
 
 func TestScheduledAndCatchupDoNotNotifyOnParentContextCancellation(t *testing.T) {
@@ -71,7 +71,7 @@ func TestScheduledAndCatchupDoNotNotifyOnParentContextCancellation(t *testing.T)
 			station := &config.Station{StreamURL: "https://stream.example.com/station.mp3"}
 			tempFile := utils.RecordingPath(recordingsDir, "station", tt.timestamp, ".mkv")
 
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -142,7 +142,7 @@ printf remuxed > "$1"
 	}
 
 	const timestamp = "2026-04-30-23"
-	manager.record(context.Background(), recordOptions{
+	manager.record(t.Context(), recordOptions{
 		name:      "station",
 		station:   &config.Station{StreamURL: "https://stream.example.com/station.aac"},
 		timestamp: timestamp,
@@ -192,7 +192,7 @@ exit 0
 	}
 
 	const timestamp = "2026-04-30-23"
-	manager.record(context.Background(), recordOptions{
+	manager.record(t.Context(), recordOptions{
 		name:      "station",
 		station:   &config.Station{StreamURL: "https://stream.example.com/station.mp3"},
 		timestamp: timestamp,
@@ -249,7 +249,7 @@ exit 1
 	}
 
 	const timestamp = "2026-04-30-23"
-	manager.record(context.Background(), recordOptions{
+	manager.record(t.Context(), recordOptions{
 		name:      "station",
 		station:   &config.Station{StreamURL: "https://stream.example.com/station.aac"},
 		timestamp: timestamp,
@@ -273,6 +273,51 @@ exit 1
 	}
 }
 
+func TestRecordWaitsForMetadataTask(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseCtx, release := context.WithCancel(context.WithoutCancel(t.Context()))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestStarted)
+		<-releaseCtx.Done()
+		_, _ = w.Write([]byte("metadata"))
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(release)
+
+	manager := New(&config.Config{RecordingsDir: t.TempDir()}, nil, nil)
+	manager.availableBytes = func(string) (uint64, error) {
+		return 0, errors.New("stop after metadata starts")
+	}
+	station := &config.Station{MetadataURL: server.URL}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		manager.record(t.Context(), recordOptions{
+			name:      "station",
+			station:   station,
+			timestamp: "2026-04-30-23",
+		})
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("metadata request did not start")
+	}
+	select {
+	case <-done:
+		t.Fatal("record returned before its metadata task completed")
+	default:
+	}
+
+	release()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("record did not return after metadata task completed")
+	}
+}
+
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
 
@@ -286,7 +331,7 @@ func waitForFile(t *testing.T, path string) {
 	t.Fatalf("timed out waiting for %s", path)
 }
 
-func TestRecorderHelperProcess(t *testing.T) {
+func TestRecorderHelperProcess(*testing.T) {
 	shouldSleep := os.Getenv("GO_WANT_RECORDER_HELPER_PROCESS") == "1"
 	shouldExit := os.Getenv("GO_WANT_RECORDER_WRITE_HELPER_PROCESS") == "1"
 	if !shouldSleep && !shouldExit {

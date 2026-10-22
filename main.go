@@ -89,16 +89,16 @@ func main() {
 	// Initialize components.
 	recorderManager := recorder.New(cfg, validatorIface, notifier)
 
-	// Run test mode if requested.
-	if *testMode {
-		recorderManager.Test()
-		return
-	}
-
 	// Create a context that is cancelled on graceful-shutdown signals. Created
 	// after all startup validation so no os.Exit call can skip the deferred stop.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Run test mode if requested.
+	if *testMode {
+		recorderManager.Test(ctx)
+		return
+	}
 
 	// Start components concurrently using goroutines
 	var wg sync.WaitGroup

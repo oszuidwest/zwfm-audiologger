@@ -19,7 +19,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 // handleHealth handles health check requests.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("OK"))
 }
