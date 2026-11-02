@@ -257,7 +257,9 @@ func (m *Manager) processJob(ctx context.Context, job ValidationJob) {
 
 	// Send alert if invalid and alerter is configured.
 	if !result.Valid && m.alerter != nil {
-		if err := m.alerter.Send(ctx, result); err != nil {
+		alertCtx, cancel := context.WithTimeout(ctx, constants.AlertNotifyTimeout)
+		defer cancel()
+		if err := m.alerter.Send(alertCtx, result); err != nil {
 			slog.Error("failed to send validation alert", "error", err)
 		}
 	}

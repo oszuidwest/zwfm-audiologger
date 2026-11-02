@@ -65,7 +65,8 @@ const (
 	// useful and would fail normal duration validation if it is ever re-queued.
 	CatchupMinRemainingSecs = 60
 
-	// AlertNotifyTimeout is the maximum time allowed to deliver a recording failure alert,
-	// including all retries. Bounds the synchronous notify call in the recorder goroutine.
+	// AlertNotifyTimeout is the maximum time allowed to deliver an alert mail,
+	// including all retries and Retry-After waits, so a slow send cannot hold
+	// up the recorder goroutine or the validator worker.
 	AlertNotifyTimeout = 2 * time.Minute
 )
