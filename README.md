@@ -9,7 +9,7 @@ This is what runs at Streekomroep ZuidWest. Every reliability feature in the cod
 - **Catchup on startup.** If the process starts mid-hour with at least 60 seconds remaining in the slot, it begins recording immediately rather than waiting for the next hour. A restart never costs you a partial hour.
 - **Disk-space guard.** Refuses to start a new recording when free space drops below 1 GB, instead of silently writing zero-byte files until the volume fills.
 - **Post-recording validation.** Each finished file is analyzed for silence (`ffmpeg silencedetect`) and looped content (RMS autocorrelation). Files that look broken are flagged.
-- **Failure alerts.** Recording failures and validation failures send email via Microsoft Graph, retried with exponential backoff (3 attempts, 1s to 30s). Recipients can be routed per station.
+- **Failure alerts.** Recording failures and validation failures send email via Microsoft Graph, with up to 4 attempts on transient errors (1, 2 and 4 second waits, or the Retry-After that Graph asks for up to 30 seconds). Recipients can be routed per station.
 - **Internal scheduler.** No reliance on system cron. The Go process owns its own schedule and shuts down gracefully on SIGTERM.
 - **Format detection at remux time.** `ffprobe` decides the actual container, so a station that switches codec mid-day still produces a valid file in the right wrapper.
 - **Structured logging.** JSON output via `log/slog`, suitable for ingestion into any log pipeline.
