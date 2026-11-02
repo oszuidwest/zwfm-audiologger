@@ -2,6 +2,7 @@ package validator
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,11 +12,14 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 )
 
-type fakeMailer struct{ sent []*graphmail.Message }
+type fakeMailer struct {
+	sent []*graphmail.Message
+	err  error
+}
 
 func (f *fakeMailer) Send(_ context.Context, m *graphmail.Message) error {
 	f.sent = append(f.sent, m)
-	return nil
+	return f.err
 }
 
 func TestAlerterBuildsHTMLMessages(t *testing.T) {
@@ -59,5 +63,16 @@ func TestAlerterBuildsHTMLMessages(t *testing.T) {
 		if !strings.Contains(tt.msg.Body, tt.body) {
 			t.Errorf("%q: Body = %q, want it to contain %q", tt.subject, tt.msg.Body, tt.body)
 		}
+	}
+}
+
+func TestAlerterReturnsSendError(t *testing.T) {
+	want := errors.New("graph down")
+	a := &Alerter{
+		config: &config.AlertConfig{DefaultRecipients: []string{"ops@example.com"}},
+		mail:   &fakeMailer{err: want},
+	}
+	if err := a.SendRecordingFailure(t.Context(), "zuidwest", "ffmpeg exited", time.Now()); !errors.Is(err, want) {
+		t.Fatalf("SendRecordingFailure error = %v, want %v", err, want)
 	}
 }
