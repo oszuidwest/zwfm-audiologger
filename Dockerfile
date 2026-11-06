@@ -1,9 +1,6 @@
 # Build stage
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS builder
 
-# Install build dependencies
-RUN apk add --no-cache ca-certificates
-
 # Set working directory
 WORKDIR /app
 
@@ -35,10 +32,7 @@ LABEL org.opencontainers.image.description="ZuidWest FM audiologger"
 
 # Install runtime dependencies
 RUN apk --no-cache upgrade && \
-    apk add --no-cache \
-    ffmpeg \
-    ca-certificates \
-    tzdata
+    apk add --no-cache ffmpeg
 
 # Create the non-root user and its writable data directories.
 RUN addgroup -g 1001 audiologger && \
