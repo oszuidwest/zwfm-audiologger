@@ -68,8 +68,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// Wait for context cancellation
 	<-ctx.Done()
 	slog.Info("Shutting down scheduler")
-	shutdownCtx := scheduler.Stop()
-	<-shutdownCtx.Done()
+	scheduler.StopAndWait()
 	s.tasks.Wait()
 	slog.Info("Scheduler stopped")
 

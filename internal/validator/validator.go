@@ -140,9 +140,6 @@ func (m *Manager) scanUnvalidated(ctx context.Context) {
 	slog.Info("Scanning for unvalidated recordings")
 
 	for stationName := range m.config.Stations {
-		if ctx.Err() != nil {
-			return
-		}
 		stationDir := filepath.Join(m.config.RecordingsDir, stationName)
 
 		entries, err := os.ReadDir(stationDir)

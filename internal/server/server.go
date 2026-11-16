@@ -2,7 +2,6 @@
 package server
 
 import (
-	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -123,14 +122,14 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		lrw := &loggingResponseWriter{ResponseWriter: w}
+		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
 		next.ServeHTTP(lrw, r)
 
 		s.accessLogger.Info("HTTP request",
 			"method", r.Method,
 			"path", r.URL.Path,
-			"status", cmp.Or(lrw.statusCode, http.StatusOK),
+			"status", lrw.statusCode,
 			"duration", time.Since(start),
 		)
 	})
@@ -139,24 +138,12 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 // loggingResponseWriter wraps http.ResponseWriter to capture status code for logging purposes.
 type loggingResponseWriter struct {
 	http.ResponseWriter
-	statusCode int // 0 until the final status is sent; log it as 200 then.
+	statusCode int
 }
 
-func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter {
-	return lrw.ResponseWriter
-}
-
-// Write pins the implicit 200 that net/http sends when a body precedes WriteHeader.
-func (lrw *loggingResponseWriter) Write(data []byte) (int, error) {
-	lrw.statusCode = cmp.Or(lrw.statusCode, http.StatusOK)
-	return lrw.ResponseWriter.Write(data)
-}
-
-// WriteHeader records the first final status; 1xx (except 101) leave the header open, as in net/http.
+// WriteHeader captures the status code and calls the underlying ResponseWriter's WriteHeader.
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
-	if lrw.statusCode == 0 && (code < 100 || code >= 200 || code == http.StatusSwitchingProtocols) {
-		lrw.statusCode = code
-	}
+	lrw.statusCode = code
 	lrw.ResponseWriter.WriteHeader(code)
 }
 

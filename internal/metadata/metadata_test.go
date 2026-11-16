@@ -123,3 +123,33 @@ func TestExtractJSONPathReportsTypeMismatch(t *testing.T) {
 		t.Fatalf("extractJSONPath error = %q, want type mismatch", err)
 	}
 }
+
+func TestExtractJSONPathAcceptsLenientThirdPartyJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{"invalid UTF-8", []byte("{\"title\":\"Caf\xe9\"}"), "Caf�"},
+		{"duplicate names keep the last value", []byte(`{"title":"old","title":"new"}`), "new"},
+		{"duplicate names with different types", []byte(`{"title":"Song","unused":1,"unused":"updated"}`), "Song"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := extractJSONPath(tt.data, "title")
+			if err != nil {
+				t.Fatalf("extractJSONPath: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("extractJSONPath = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractJSONPathDuplicateObjectReplacesEarlierOne(t *testing.T) {
+	_, err := extractJSONPath([]byte(`{"data":{"title":"stale"},"data":{"other":"new"}}`), "data.title")
+	if err == nil {
+		t.Fatal("extractJSONPath found a title in a replaced object, want not found")
+	}
+}

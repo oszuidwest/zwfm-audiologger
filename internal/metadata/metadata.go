@@ -3,7 +3,7 @@ package metadata
 
 import (
 	"context"
-	"encoding/json/v2"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -111,12 +111,13 @@ func extractJSONPath(data []byte, path string) (string, error) {
 		return strings.TrimSpace(string(data)), nil
 	}
 
-	var jsonData map[string]any
-	if err := json.Unmarshal(data, &jsonData); err != nil {
+	// Station endpoints are third-party input. Parse them with v1 semantics
+	// (invalid UTF-8 replaced, last duplicate name wins) instead of dropping the metadata.
+	var current any
+	if err := json.Unmarshal(data, &current); err != nil {
 		return "", fmt.Errorf("parse metadata json: %w", err)
 	}
 
-	var current any = jsonData
 	for part := range strings.SplitSeq(path, ".") {
 		object, ok := current.(map[string]any)
 		if !ok {

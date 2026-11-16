@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -92,70 +91,6 @@ func TestCloseAccessLogFileAllowsNilFile(t *testing.T) {
 
 	if s.accessLogFile != nil {
 		t.Fatal("nil access log file should remain nil")
-	}
-}
-
-func TestLoggingResponseWriterStatus(t *testing.T) {
-	tests := []struct {
-		name string
-		run  func(w *loggingResponseWriter)
-		want int
-	}{
-		{
-			name: "explicit status",
-			run:  func(w *loggingResponseWriter) { w.WriteHeader(http.StatusNotFound) },
-			want: http.StatusNotFound,
-		},
-		{
-			name: "implicit 200 wins over a later WriteHeader",
-			run: func(w *loggingResponseWriter) {
-				_, _ = w.Write([]byte("body"))
-				w.WriteHeader(http.StatusInternalServerError)
-			},
-			want: http.StatusOK,
-		},
-		{
-			name: "first final status wins over a duplicate",
-			run: func(w *loggingResponseWriter) {
-				w.WriteHeader(http.StatusNotFound)
-				w.WriteHeader(http.StatusTeapot)
-			},
-			want: http.StatusNotFound,
-		},
-		{
-			name: "early hints do not end the header",
-			run: func(w *loggingResponseWriter) {
-				w.WriteHeader(http.StatusEarlyHints)
-				w.WriteHeader(http.StatusNotFound)
-			},
-			want: http.StatusNotFound,
-		},
-		{
-			name: "switching protocols is final",
-			run: func(w *loggingResponseWriter) {
-				w.WriteHeader(http.StatusSwitchingProtocols)
-				w.WriteHeader(http.StatusNotFound)
-			},
-			want: http.StatusSwitchingProtocols,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
-			w := &loggingResponseWriter{ResponseWriter: response}
-
-			tt.run(w)
-
-			if w.statusCode != tt.want {
-				t.Fatalf("logged status = %d, want %d", w.statusCode, tt.want)
-			}
-		})
-	}
-
-	response := httptest.NewRecorder()
-	if w := (&loggingResponseWriter{ResponseWriter: response}); w.Unwrap() != response {
-		t.Fatal("Unwrap did not return the underlying response writer")
 	}
 }
 

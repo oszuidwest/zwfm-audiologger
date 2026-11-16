@@ -275,7 +275,7 @@ exit 1
 
 func TestRecordWaitsForMetadataTask(t *testing.T) {
 	requestStarted := make(chan struct{})
-	releaseCtx, release := context.WithCancel(context.WithoutCancel(t.Context()))
+	releaseCtx, release := context.WithCancel(t.Context())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(requestStarted)
 		<-releaseCtx.Done()
