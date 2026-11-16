@@ -1,9 +1,11 @@
 module github.com/oszuidwest/zwfm-audiologger
 
-go 1.27.3
+go 1.27.4
 
 require (
-	github.com/dustin/go-humanize v1.0.1
-	github.com/netresearch/go-cron v0.16.0
-	golang.org/x/oauth2 v0.37.0
+	github.com/dustin/go-humanize v1.1.0
+	github.com/netresearch/go-cron v0.19.0
+	github.com/oszuidwest/zw-graphmail v0.0.2
 )
+
+require golang.org/x/oauth2 v0.37.0 // indirect

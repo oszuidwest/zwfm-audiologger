@@ -1,8 +1,5 @@
 # Build stage
-FROM golang:1.27.3-alpine3.24 AS builder
-
-# Install build dependencies
-RUN apk add --no-cache ca-certificates
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS builder
 
 # Set working directory
 WORKDIR /app
@@ -16,12 +13,14 @@ COPY . .
 
 # Build arguments. CI provides release metadata explicitly; deterministic
 # fallbacks keep local builds reproducible when no build arguments are supplied.
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 
 # Build the application.
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} go build -trimpath \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.Commit=${COMMIT}" \
     -o audiologger .
 
@@ -33,10 +32,7 @@ LABEL org.opencontainers.image.description="ZuidWest FM audiologger"
 
 # Install runtime dependencies
 RUN apk --no-cache upgrade && \
-    apk add --no-cache \
-    ffmpeg \
-    ca-certificates \
-    tzdata
+    apk add --no-cache ffmpeg
 
 # Create the non-root user and its writable data directories.
 RUN addgroup -g 1001 audiologger && \

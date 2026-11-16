@@ -54,15 +54,6 @@ const (
 	// RemuxTimeout is the maximum time allowed for remuxing a completed recording.
 	RemuxTimeout = 5 * time.Minute
 
-	// HTTPClientTimeout is the default timeout for HTTP client requests.
-	HTTPClientTimeout = 30 * time.Second
-	// AlertRetryMax is the maximum number of retry attempts for alert sending.
-	AlertRetryMax = 3
-	// AlertRetryInitialWait is the initial wait time between retry attempts.
-	AlertRetryInitialWait = 1 * time.Second
-	// AlertRetryMaxWait is the maximum wait time between retry attempts.
-	AlertRetryMaxWait = 30 * time.Second
-
 	// ValidationFileSuffix is the file extension for validation result files.
 	ValidationFileSuffix = ".validation.json"
 
@@ -74,7 +65,8 @@ const (
 	// useful and would fail normal duration validation if it is ever re-queued.
 	CatchupMinRemainingSecs = 60
 
-	// AlertNotifyTimeout is the maximum time allowed to deliver a recording failure alert,
-	// including all retries. Bounds the synchronous notify call in the recorder goroutine.
+	// AlertNotifyTimeout is the maximum time allowed to deliver an alert mail,
+	// including all retries and Retry-After waits, so a slow send cannot hold
+	// up the recorder goroutine or the validator worker.
 	AlertNotifyTimeout = 2 * time.Minute
 )
