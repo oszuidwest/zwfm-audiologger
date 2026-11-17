@@ -100,7 +100,8 @@ type recordOptions struct {
 	skipValidation bool
 }
 
-// record performs the actual recording operation.
+// record performs the actual recording operation. It also fetches station
+// metadata concurrently and returns only after that fetch has finished.
 func (m *Manager) record(ctx context.Context, opts recordOptions) {
 	if ctx.Err() != nil {
 		slog.Info("recording skipped because context is done", "station", opts.name, "reason", ctx.Err())
@@ -354,5 +355,9 @@ func (m *Manager) Test(ctx context.Context) {
 		})
 	}
 
+	if ctx.Err() != nil {
+		slog.Warn("Test recordings interrupted", "reason", ctx.Err())
+		return
+	}
 	slog.Info("Test recordings completed")
 }

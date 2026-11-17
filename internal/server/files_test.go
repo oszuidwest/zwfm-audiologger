@@ -87,8 +87,8 @@ func TestHandleRecordingsStaysInsideRecordingsDir(t *testing.T) {
 func TestHandleRecordingsListsDirectoryWithTrailingSlash(t *testing.T) {
 	s := newRecordingsTestServer(t)
 
-	// The listing links to directories with a trailing slash, which the mux
-	// passes through to the path value unchanged.
+	// Directory links in the listing end with a slash, so the path value can
+	// be "station/".
 	rec := serveRecordingsPath(t, s, "station/", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())

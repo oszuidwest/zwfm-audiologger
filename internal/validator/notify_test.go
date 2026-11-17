@@ -9,8 +9,8 @@ import (
 	"github.com/oszuidwest/zwfm-audiologger/internal/config"
 )
 
-// hangingMailer blocks until the send context ends, like an unreachable
-// Graph API would.
+// hangingMailer blocks until the send context ends, like a Graph API that
+// never responds.
 type hangingMailer struct{}
 
 func (hangingMailer) Send(ctx context.Context, _ *graphmail.Message) error {

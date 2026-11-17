@@ -54,8 +54,9 @@ type Station struct {
 }
 
 // Load reads and parses the configuration from a JSON file and applies sensible defaults for missing values.
+// Keys must match exactly; unknown or duplicate keys are an error.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // Config path is provided by the application, not user input.
+	data, err := os.ReadFile(path) //nolint:gosec // Config path comes from the operator's -config flag.
 	if err != nil {
 		return nil, fmt.Errorf("read config file %q: %w", path, err)
 	}

@@ -56,7 +56,8 @@ func New(cfg *config.Config) (*Manager, error) {
 	return m, nil
 }
 
-// Start begins the validation worker and scans for unvalidated files.
+// Start runs the validation worker until ctx is cancelled. It scans for
+// unvalidated recordings in the background and returns once that scan has stopped.
 func (m *Manager) Start(ctx context.Context) error {
 	slog.Info("Validator started")
 
@@ -78,7 +79,9 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // NotifyRecordingFailure sends an alert when a recording fails to be created.
 // Called by the recorder for any recording failure: directory creation error,
-// insufficient disk space, disk check error, FFmpeg failure, or remux failure.
+// insufficient disk space, disk check error, FFmpeg failure, format detection
+// failure, or remux failure. The send gets a context derived from ctx with
+// AlertNotifyTimeout; the Graph token request does not follow it yet (#87).
 func (m *Manager) NotifyRecordingFailure(ctx context.Context, station, reason string) {
 	if m.alerter == nil {
 		return
@@ -129,6 +132,7 @@ func (m *Manager) Enqueue(filePath, station, timestamp string) {
 }
 
 // scanUnvalidated finds recordings without validation files and queues them.
+// It stops early when ctx is cancelled.
 func (m *Manager) scanUnvalidated(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -152,6 +156,7 @@ func (m *Manager) scanUnvalidated(ctx context.Context) {
 
 		for _, entry := range entries {
 			if ctx.Err() != nil {
+				slog.Info("Scan for unvalidated recordings interrupted", "reason", ctx.Err())
 				return
 			}
 			if entry.IsDir() {

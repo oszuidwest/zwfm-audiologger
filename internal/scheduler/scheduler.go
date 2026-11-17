@@ -23,7 +23,7 @@ import (
 type Scheduler struct {
 	config   *config.Config
 	recorder *recorder.Manager
-	tasks    sync.WaitGroup
+	tasks    sync.WaitGroup // station tasks; Start waits for them on shutdown
 }
 
 // New creates a new scheduler.
@@ -34,7 +34,8 @@ func New(cfg *config.Config, rec *recorder.Manager) *Scheduler {
 	}
 }
 
-// Start begins the scheduling using netresearch/go-cron.
+// Start begins the scheduling using netresearch/go-cron. It blocks until ctx is
+// cancelled, then waits for running cron jobs and station tasks.
 func (s *Scheduler) Start(ctx context.Context) error {
 	// Create scheduler using the global timezone (already set in main)
 	scheduler := cron.New(cron.WithLocation(utils.AppTimezone))
@@ -147,7 +148,8 @@ func (s *Scheduler) startCatchupRecordings(ctx context.Context) {
 
 // forEachStationAsync runs fn for every configured station in its own goroutine,
 // with panic recovery and a context-cancellation check. action names the
-// operation in log messages.
+// operation in log messages. The goroutines are tracked in s.tasks so Start
+// waits for them on shutdown.
 func (s *Scheduler) forEachStationAsync(ctx context.Context, action string, fn func(name string, station *config.Station)) {
 	for name, station := range s.config.Stations {
 		s.tasks.Go(func() {

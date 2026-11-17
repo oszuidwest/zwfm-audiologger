@@ -307,7 +307,7 @@ func TestRecordWaitsForMetadataTask(t *testing.T) {
 	select {
 	case <-done:
 		t.Fatal("record returned before its metadata task completed")
-	default:
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	release()

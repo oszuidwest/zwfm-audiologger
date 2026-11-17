@@ -55,7 +55,8 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /recordings/{path...}", s.handleRecordings)
 }
 
-// Start begins listening for HTTP requests.
+// Start serves HTTP until ctx is cancelled. It returns nil after a clean
+// shutdown and an error if serving or shutdown fails.
 func (s *Server) Start(ctx context.Context) error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
 
@@ -122,6 +123,7 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
+		// Wrap ResponseWriter to capture status code
 		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
 		next.ServeHTTP(lrw, r)
@@ -147,9 +149,10 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
-// writeJSON writes a JSON response.
+// writeJSON writes a JSON response with sorted map keys. If encoding fails,
+// it logs the error and responds with 500 instead.
 func writeJSON(w http.ResponseWriter, status int, data any) {
-	payload, err := json.Marshal(data)
+	payload, err := json.Marshal(data, json.Deterministic(true))
 	if err != nil {
 		slog.Error("failed to encode JSON response", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

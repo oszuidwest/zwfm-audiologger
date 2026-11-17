@@ -111,8 +111,9 @@ func extractJSONPath(data []byte, path string) (string, error) {
 		return strings.TrimSpace(string(data)), nil
 	}
 
-	// Station endpoints are third-party input. Parse them with v1 semantics
-	// (invalid UTF-8 replaced, last duplicate name wins) instead of dropping the metadata.
+	// Station endpoints are third-party input. Keep encoding/json (v1) here, not
+	// v2: v1 replaces invalid UTF-8 and keeps the last duplicate name, where v2
+	// would reject the document and lose the metadata.
 	var current any
 	if err := json.Unmarshal(data, &current); err != nil {
 		return "", fmt.Errorf("parse metadata json: %w", err)

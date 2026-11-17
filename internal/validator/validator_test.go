@@ -39,7 +39,12 @@ func TestMarkSkipped(t *testing.T) {
 		t.Fatalf("sidecar not written: %v", err)
 	}
 
-	var result validator.ValidationResult
+	var result struct {
+		Station   string `json:"station"`
+		Timestamp string `json:"timestamp"`
+		Valid     bool   `json:"valid"`
+		Skipped   bool   `json:"skipped"`
+	}
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("failed to parse sidecar JSON: %v", err)
 	}
@@ -58,9 +63,13 @@ func TestMarkSkipped(t *testing.T) {
 }
 
 func TestValidationResultOmitsFalseSkipped(t *testing.T) {
-	data, err := json.Marshal(&validator.ValidationResult{})
+	path := filepath.Join(t.TempDir(), "result.validation.json")
+	if err := (&validator.ValidationResult{}).Save(path); err != nil {
+		t.Fatalf("save validation result: %v", err)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from t.TempDir(), not user input
 	if err != nil {
-		t.Fatalf("marshal validation result: %v", err)
+		t.Fatalf("read validation result: %v", err)
 	}
 	if bytes.Contains(data, []byte(`"skipped"`)) {
 		t.Fatalf("false skipped field was not omitted: %s", data)
