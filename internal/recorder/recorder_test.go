@@ -362,3 +362,29 @@ func writeShellScript(t *testing.T, path, content string) {
 		t.Fatalf("write shell script %s: %v", path, err)
 	}
 }
+
+func TestRecordFetchesMetadataOnlyAfterDirectoryExists(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte("metadata"))
+	}))
+	t.Cleanup(server.Close)
+
+	// A file where the recordings directory should be makes EnsureDir fail.
+	recordingsDir := filepath.Join(t.TempDir(), "recordings")
+	if err := os.WriteFile(recordingsDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := New(&config.Config{RecordingsDir: recordingsDir}, nil, nil)
+	manager.record(t.Context(), recordOptions{
+		name:      "station",
+		station:   &config.Station{MetadataURL: server.URL},
+		timestamp: "2026-04-30-23",
+	})
+
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("metadata requests = %d, want 0 when the station directory cannot be created", got)
+	}
+}

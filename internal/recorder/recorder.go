@@ -110,12 +110,6 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 
 	name := opts.name
 
-	var metadataTasks sync.WaitGroup
-	if opts.station.MetadataURL != "" {
-		metadataTasks.Go(func() { m.saveMetadata(ctx, name, opts.station, opts.timestamp) })
-		defer metadataTasks.Wait()
-	}
-
 	dir := filepath.Join(m.config.RecordingsDir, name)
 	if err := utils.EnsureDir(dir); err != nil {
 		reason := fmt.Sprintf("failed to create recording directory: %v", err)
@@ -127,6 +121,13 @@ func (m *Manager) record(ctx context.Context, opts recordOptions) {
 		)
 		m.notifyFailure(ctx, name, reason)
 		return
+	}
+
+	// Start after EnsureDir so the .meta write never runs before its directory exists.
+	var metadataTasks sync.WaitGroup
+	if opts.station.MetadataURL != "" {
+		metadataTasks.Go(func() { m.saveMetadata(ctx, name, opts.station, opts.timestamp) })
+		defer metadataTasks.Wait()
 	}
 
 	// Refuse to record if available disk space is below the minimum threshold.
