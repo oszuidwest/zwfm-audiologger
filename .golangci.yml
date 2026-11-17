@@ -1,24 +1,63 @@
 version: "2"
 
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 linters:
   enable:
-    # Existing
+    # Correctness and safety
+    - govet
+    - staticcheck
+    - unused
+    - errcheck
+    - errorlint
+    - nilerr
+    - forcetypeassert
+    - durationcheck
+    - reassign
+    - containedctx
+    - fatcontext
+    - noctx
+    - bodyclose
+    # Code quality and performance
     - gocritic
     - gocyclo
-    # Doc/Comment
+    - unparam
+    - unconvert
+    - ineffassign
+    - perfsprint
+    - predeclared
+    - intrange
+    - usestdlibvars
+    - exptostd
+    # Documentation and style
+    - revive
+    - whitespace
     - godot
     - godoclint
     - dupword
     - misspell
-    # Code quality
-    - errorlint
+    - asciicheck
+    - bidichk
+    # Structured logging
+    - loggercheck
+    - sloglint
+    # Testing
+    - thelper
+    - usetesting
+    # Security and resources
     - gosec
-    - nilerr
-    - unparam
-    - unconvert
-    - bodyclose
+    # Modernization and lint hygiene
     - modernize
+    - nolintlint
   settings:
+    errcheck:
+      check-type-assertions: true
     gocritic:
       enabled-tags:
         - diagnostic
@@ -28,3 +67,14 @@ linters:
       min-complexity: 20
     godot:
       scope: toplevel
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofumpt
+  settings:
+    gofumpt:
+      extra:
+        group-params: true

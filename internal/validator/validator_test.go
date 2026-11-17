@@ -1,8 +1,9 @@
 package validator_test
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,6 +62,20 @@ func TestMarkSkipped(t *testing.T) {
 	}
 }
 
+func TestValidationResultOmitsFalseSkipped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.validation.json")
+	if err := (&validator.ValidationResult{}).Save(path); err != nil {
+		t.Fatalf("save validation result: %v", err)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from t.TempDir(), not user input
+	if err != nil {
+		t.Fatalf("read validation result: %v", err)
+	}
+	if bytes.Contains(data, []byte(`"skipped"`)) {
+		t.Fatalf("false skipped field was not omitted: %s", data)
+	}
+}
+
 func TestStartCancelsInFlightValidationWithoutSidecar(t *testing.T) {
 	dir := t.TempDir()
 	ffprobePath := filepath.Join(dir, "ffprobe")
@@ -89,7 +104,7 @@ func TestStartCancelsInFlightValidationWithoutSidecar(t *testing.T) {
 	audioPath := filepath.Join(dir, "2026-04-28-12.mp3")
 	m.Enqueue(audioPath, "teststation", "2026-04-28-12")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- m.Start(ctx)

@@ -26,6 +26,8 @@ This is what runs at Streekomroep ZuidWest. Every reliability feature in the cod
 
 The application looks for `config.json` in the working directory. Override with `-config /path/to/config.json`.
 
+Keys must match the names below exactly, including case. Unknown or duplicate keys, invalid UTF-8 and text after the closing brace stop startup with an error.
+
 ```json
 {
   "recordings_dir": "/var/audio",
@@ -137,7 +139,7 @@ The image is published as multi-arch (`linux/amd64`, `linux/arm64`) on every rel
 ./audiologger -version
 ```
 
-Pre-built binaries for `linux/amd64`, `linux/arm64`, `linux/arm/7`, `darwin/amd64`, and `darwin/arm64` are attached to every GitHub Release.
+Pre-built binaries for `linux/amd64`, `linux/arm64`, `linux/arm/7`, `darwin/amd64`, and `darwin/arm64` are attached to every GitHub Release. The macOS builds require macOS 13 Ventura or later.
 
 ## HTTP API
 
@@ -163,12 +165,12 @@ Pre-built binaries for `linux/amd64`, `linux/arm64`, `linux/arm/7`, `darwin/amd6
 ```bash
 go build -o audiologger .
 go test -race -shuffle=on ./...
-go fmt ./...
+golangci-lint fmt
 go vet ./...
 golangci-lint run --timeout=5m
 ```
 
-Requires Go 1.27.0 or higher and `ffmpeg`/`ffprobe` available in `PATH`.
+Requires Go 1.27.4 or higher and `ffmpeg`/`ffprobe` available in `PATH`.
 
 ## License
 

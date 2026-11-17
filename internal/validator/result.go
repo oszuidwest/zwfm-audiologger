@@ -2,7 +2,8 @@
 package validator
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"time"
 
@@ -18,13 +19,13 @@ type ValidationResult struct {
 	SilencePercent float64   `json:"silence_percent"`
 	LoopPercent    float64   `json:"loop_percent"`
 	Valid          bool      `json:"valid"`
-	Skipped        bool      `json:"skipped,omitempty"`
+	Skipped        bool      `json:"skipped,omitzero"`
 	Issues         []string  `json:"issues,omitempty"`
 }
 
 // Save writes the validation result to a JSON file.
 func (r *ValidationResult) Save(path string) error {
-	data, err := json.MarshalIndent(r, "", "  ")
+	data, err := json.Marshal(r, jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package validator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -64,10 +65,10 @@ func validateCredentials(cfg *config.AlertConfig) error {
 		return err
 	}
 	if cfg.ClientSecret == "" {
-		return fmt.Errorf("client secret is required")
+		return errors.New("client secret is required")
 	}
 	if cfg.SenderEmail == "" {
-		return fmt.Errorf("sender email is required")
+		return errors.New("sender email is required")
 	}
 	return nil
 }

@@ -3,7 +3,8 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -54,7 +55,8 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("GET /recordings/{path...}", s.handleRecordings)
 }
 
-// Start begins listening for HTTP requests.
+// Start serves HTTP until ctx is cancelled. It returns nil after a clean
+// shutdown and an error if serving or shutdown fails.
 func (s *Server) Start(ctx context.Context) error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
 
@@ -66,11 +68,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Create HTTP server with logging middleware
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      s.loggingMiddleware(s.mux),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              addr,
+		Handler:           s.loggingMiddleware(s.mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Run ListenAndServe in a goroutine so we can select on context cancellation.
@@ -83,32 +86,24 @@ func (s *Server) Start(ctx context.Context) error {
 	select {
 	case err := <-errCh:
 		s.closeAccessLogFile()
-		return err
+		return fmt.Errorf("serve HTTP: %w", err)
 	case <-ctx.Done():
 	}
 
 	// Gracefully shut down with a timeout.
 	slog.Info("Shutting down HTTP server")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	shutdownErr := server.Shutdown(shutdownCtx)
-	if shutdownErr != nil {
-		slog.Error("http server shutdown error", "error", shutdownErr)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		// Handlers may still be writing to the access log; the OS closes it on exit.
+		return fmt.Errorf("shut down HTTP server: %w", err)
 	}
+	s.closeAccessLogFile()
 
-	// Close the access log file only after a clean shutdown.
-	// If Shutdown timed out, handlers may still be writing to the log;
-	// closing early would silently discard those log entries.
-	// On a forced exit, the FD remains open until the process exits and the OS
-	// flushes and closes it.
-	if shutdownErr == nil {
-		s.closeAccessLogFile()
+	if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serve HTTP: %w", err)
 	}
-
-	if shutdownErr != nil {
-		return shutdownErr
-	}
-	return ctx.Err()
+	return nil
 }
 
 // closeAccessLogFile closes the access log file, clears the field, and is safe to call repeatedly.
@@ -154,11 +149,16 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.ResponseWriter.WriteHeader(code)
 }
 
-// writeJSON writes a JSON response.
+// writeJSON writes a JSON response with sorted map keys. If encoding fails,
+// it logs the error and responds with 500 instead.
 func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
+	payload, err := json.Marshal(data, json.Deterministic(true))
+	if err != nil {
 		slog.Error("failed to encode JSON response", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(payload)
 }
