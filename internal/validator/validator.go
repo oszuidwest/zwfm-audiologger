@@ -80,8 +80,8 @@ func (m *Manager) Start(ctx context.Context) error {
 // NotifyRecordingFailure sends an alert when a recording fails to be created.
 // Called by the recorder for any recording failure: directory creation error,
 // insufficient disk space, disk check error, FFmpeg failure, format detection
-// failure, or remux failure. The send gets a context derived from ctx with
-// AlertNotifyTimeout; the Graph token request does not follow it yet (#87).
+// failure, or remux failure. The send, including the Graph token request, gets
+// a context derived from ctx with AlertNotifyTimeout.
 func (m *Manager) NotifyRecordingFailure(ctx context.Context, station, reason string) {
 	if m.alerter == nil {
 		return

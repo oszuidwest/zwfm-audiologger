@@ -5,7 +5,7 @@ go 1.27.4
 require (
 	github.com/dustin/go-humanize v1.1.0
 	github.com/netresearch/go-cron v0.19.0
-	github.com/oszuidwest/zw-graphmail v0.0.2
+	github.com/oszuidwest/zw-graphmail v0.0.3
 )
 
-require golang.org/x/oauth2 v0.37.0 // indirect
+require golang.org/x/oauth2 v0.38.0 // indirect
